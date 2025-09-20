@@ -1,0 +1,41 @@
+{
+    "league_id": 1,
+    "league_name": "Major League Baseball",
+    "schedule_name": "mlb_schedule_2023.txt",
+    "sub_leagues": [
+        {
+            "sub_league_name": "American League",
+            "divisions": [
+                {
+                    "division_name": "East",
+                    "teams": [1, 2, 3, 4, 5] 
+                },
+                {
+                    "division_name": "Central",
+                    "teams": [6, 7, 8, 9, 10]
+                },
+                {
+                    "division_name": "West",
+                    "teams": [11, 12, 13, 14, 15]
+                }
+            ]
+        },
+        {
+            "sub_league_name": "National League",
+            "divisions": [
+                {
+                    "division_name": "East",
+                    "teams": [16, 17, 18, 19, 20]
+                },
+                {
+                    "division_name": "Central",
+                    "teams": [21, 22, 23, 24, 25]
+                },
+                {
+                    "division_name": "West",
+                    "teams": [26, 27, 28, 29, 30]
+                }
+            ]
+        }
+    ]
+}

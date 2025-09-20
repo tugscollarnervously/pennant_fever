@@ -1,0 +1,112 @@
+{
+    "batting_archetype": {
+      "scrub": "A reliable injury replacement, he consistently performs when called upon.",
+      "career minor leaguer": "Known for stepping in as an emergency starter, his versatility is an asset.",
+      "september callup": "An everyday player who contributes consistently both at the plate and in the field.",
+      "injury replacement": "Primarily used in a platoon role, excelling against specific matchups.",
+      "AAAA player": "A fringe major leaguer, he struggles to find consistent playing time at the highest level.",
+      "backup": "A reliable injury replacement, he consistently performs when called upon.",
+      "platoon": "Primarily used in a platoon role, excelling against specific matchups.",
+      "regular starter": "An everyday player who contributes consistently both at the plate and in the field.",
+      "star": "A perennial All-Star, he’s a game-changer who can carry a team on his back.",
+      "5-tool": "A rare talent, he excels in all aspects of the game, making him a true superstar."
+    },
+    "batting": [
+      {"text": "He’s a slap hitter who uses all fields to get on base.", "min": 1, "max": 3, "weight": 2},
+      {"text": "He’s a contact hitter who consistently puts the ball in play.", "min": 4, "max": 6, "weight": 3},
+      {"text": "He’s a line-drive hitter with an ability to hit for average.", "min": 5, "max": 7, "weight": 3},
+      {"text": "He’s a power hitter who can change the game with one swing.", "min": 7, "max": 8, "weight": 4}
+    ],
+    "power": [
+      {"text": "He has almost no power to speak of.", "min": 0, "max": 1, "weight": 1},
+      {"text": "He has warning track power.", "min": 2, "max": 3, "weight": 2},
+      {"text": "He has occasional pop, but struggles to hit the long ball consistently.", "min": 3, "max": 4, "weight": 3},
+      {"text": "His bat delivers home runs effortlessly.", "min": 5, "max": 8, "weight": 3}
+    ],
+    "eye": [
+      {"text": "He has a poor eye at the plate, frequently chasing pitches out of the zone.", "min": 0, "max": 1, "weight": 1},
+      {"text": "He’s an aggressive hitter who rarely walks.", "min": 1, "max": 2, "weight": 1},
+      {"text": "He’s developing a better approach at the plate, showing improvement in pitch recognition.", "min": 3, "max": 4, "weight": 2},
+      {"text": "He has a good eye at the plate, drawing walks with ease.", "min": 5, "max": 6, "weight": 3},
+      {"text": "He’s an elite on-base threat, with exceptional pitch recognition.", "min": 7, "max": 8, "weight": 3}
+    ],
+    "speed": [
+      {"text": "He’s extremely slow on the basepaths.", "min": 0, "max": 1, "weight": 1},
+      {"text": "His speed is below average.", "min": 1, "max": 2, "weight": 1},
+      {"text": "He’s an average runner, capable of taking extra bases when needed.", "min": 3, "max": 5, "weight": 2},
+      {"text": "He’s a true base-stealing threat.", "min": 6, "max": 8, "weight": 4}
+    ],
+    "fielding": [
+      {"text": "He’s a liability in the field, with a tendency to make costly errors.", "min": 0, "max": 2, "weight": 1},
+      {"text": "He has average defensive skills, serviceable at his position.", "min": 3, "max": 4, "weight": 2},
+      {"text": "He’s a solid fielder who can handle a variety of positions with competence.", "min": 5, "max": 6, "weight": 3},
+      {"text": "He’s a defensive wizard, making plays that leave fans in awe.", "min": 7, "max": 8, "weight": 3}
+    ],
+    "batting_potential": [
+      {"text": "His development is still in its early stages, but with the right coaching, he could blossom.", "min": 0, "max": 4, "weight": 3},
+      {"text": "He’s nearing his potential, but there’s still room for growth.", "min": 4, "max": 6, "weight": 2},
+      {"text": "Having reached his peak, he is expected to maintain his current performance level.", "min": 5, "max": 8, "weight": 3}
+    ],
+    "makeup": [
+      {"text": "He’s a natural leader, inspiring his teammates to perform at their best.", "min": 5, "max": 8, "weight": 3},
+      {"text": "He’s a respected teammate and always sets a good example.", "min": 3, "max": 4, "weight": 2},
+      {"text": "He’s a clubhouse cancer, causing tension and discord among his teammates.", "min": 0, "max": 2, "weight": 1}
+    ],
+    "pitching_archetype": {
+      "journeyman": "He’s a workhorse who can pitch deep into games without losing effectiveness.",
+      "fringe starter": "He’s a one-inning specialist who struggles to maintain his stuff over multiple frames.",
+      "late bloomer": "His development is still in its early stages, but with the right coaching, he could blossom.",
+      "spot starter": "Primarily used in a platoon role, excelling against specific matchups.",
+      "quad-a arm": "A fringe major leaguer, he struggles to find consistent playing time at the highest level.",
+      "emergency starter": "Known for stepping in as an emergency starter, his versatility is an asset.",
+      "back of rotation": "He’s a solid back-of-the-rotation starter, offering dependable innings.",
+      "regular starter": "He’s a reliable starter who consistently delivers quality innings.",
+      "top of rotation": "He’s an ace who can take over a game at any time.",
+      "ace": "He’s a top-of-the-rotation ace who can dominate even the best hitters.",
+      "filler arm": "Fills out the minor league rosters, nothing more.",
+      "taxi squad reliever": "A fringe major leaguer, he struggles to find consistent playing time at the highest level.",
+      "roster expansion reliever": "Primarily used in a platoon role, excelling against specific matchups.",
+      "bullpen patch": "Minor league arm that can provide some innings for a depleted bullpen.",
+      "mop-up": "Low-leverage reliever who eats innings in blowout games.",
+      "spot-starter": "Low leverage reliever who can provide multiple innings or start in a pinch.",
+      "low-leverage": "Low leverage reliever who sits comfortably in the middle relief role.",
+      "high-leverage": "High leverage reliever who can be counted on in key situations.",
+      "closer": "Closer who can shut the door in the 9th inning."
+    },
+    "start_value": [
+      {"text": "He’s a liability as a starter, struggling to get through the lineup more than once.", "min": 0, "max": 2, "weight": 1},
+      {"text": "He’s a solid back-of-the-rotation starter, offering dependable innings.", "min": 3, "max": 4, "weight": 2},
+      {"text": "He’s a reliable starter who consistently delivers quality innings.", "min": 5, "max": 6, "weight": 3},
+      {"text": "He’s an ace who can take over a game at any time.", "min": 7, "max": 8, "weight": 3}
+    ],
+    "endurance": [
+      {"text": "He’s a one-inning specialist who struggles to maintain his stuff over multiple frames.", "min": 0, "max": 2, "weight": 1},
+      {"text": "He’s capable of working into the middle innings with decent effectiveness.", "min": 3, "max": 4, "weight": 2},
+      {"text": "He’s a workhorse who can pitch deep into games without losing effectiveness.", "min": 5, "max": 8, "weight": 3}
+    ],
+    "cg_rating": [
+      {"text": "He rarely goes the distance, often getting knocked out before the 6th inning.", "min": 0, "max": 2, "weight": 1},
+      {"text": "He has the ability to finish games occasionally when everything is working.", "min": 3, "max": 4, "weight": 2},
+      {"text": "He’s a complete game machine, regularly finishing what he starts.", "min": 5, "max": 8, "weight": 3}
+    ],
+    "sho_rating": [
+      {"text": "He struggles to keep runs off the board, often needing help from the bullpen.", "min": 0, "max": 2, "weight": 1},
+      {"text": "He can occasionally dominate a game, putting zeros on the scoreboard.", "min": 3, "max": 4, "weight": 2},
+      {"text": "He’s a shutdown starter who can blank the opposition.", "min": 5, "max": 8, "weight": 3}
+    ],
+    "relief_value": [
+      {"text": "He’s a liability out of the bullpen, often giving up runs in key moments.", "min": 0, "max": 2, "weight": 1},
+      {"text": "He’s a serviceable arm who can get a few outs when needed.", "min": 3, "max": 4, "weight": 2},
+      {"text": "He’s a shutdown reliever who can be counted on in high-leverage situations.", "min": 5, "max": 8, "weight": 3}
+    ],
+    "fatigue": [
+      {"text": "He tires easily and needs long recovery times between outings.", "min": 0, "max": 2, "weight": 1},
+      {"text": "He can handle a moderate workload but needs to be monitored carefully.", "min": 3, "max": 4, "weight": 2},
+      {"text": "He’s a workhorse who can pitch deep into games without losing effectiveness.", "min": 5, "max": 8, "weight": 3}
+    ],
+    "pitching_potential": [
+      {"text": "His development is still in its early stages, but with the right coaching, he could blossom.", "min": 0, "max": 4, "weight": 3},
+      {"text": "He’s nearing his potential, but there’s still room for growth.", "min": 4, "max": 6, "weight": 2},
+      {"text": "Having reached his peak, he is expected to maintain his current performance level.", "min": 5, "max": 8, "weight": 3}
+    ]
+  }  
