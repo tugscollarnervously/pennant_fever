@@ -8,6 +8,8 @@ import logging
 import pygame
 from datetime import datetime, timedelta
 
+# test
+
 '''
 # PRIORITY NEED TO QUASH THIS BUG AttributeError: 'NoneType' object has no attribute 'fatigue_cache'
 # ALSO looks like we have scenarios where (starting) pitcher allowed only unearned runs and but was either getting a win, or they other pitcher would get a loss (partly as a result of very low BVs the hit negative territory and get normalised to 0), also these types of shutouts not getting recognised as a shutout
