@@ -36,6 +36,22 @@ PENNANT_FEVER_DIR.mkdir(parents=True, exist_ok=True)
 # Use centralized path from data_paths_pennant_fever
 BASE_DIRECTORY = str(PENNANT_FEVER_DIR)
 
+# =============================================================================
+# LEAGUE TYPE SWITCH - Change this to switch between MLB and fictional leagues
+# =============================================================================
+# Options: "mlb" for historical MLB data, "fictional" for generated fictional leagues
+LEAGUE_TYPE = "fictional"  # Change to "fictional" to use fictional generated teams
+
+def get_team_json_directory():
+    """Return the appropriate JSON directory based on LEAGUE_TYPE setting."""
+    if LEAGUE_TYPE == "mlb":
+        return PENNANT_FEVER_JSON_MLB_DIR
+    elif LEAGUE_TYPE == "fictional":
+        return PENNANT_FEVER_JSON_FIC_DIR
+    else:
+        logger.warning(f"Unknown LEAGUE_TYPE '{LEAGUE_TYPE}', defaulting to MLB directory")
+        return PENNANT_FEVER_JSON_MLB_DIR
+
 class Game:
     def __init__(self, home_team, away_team, day, power_chart, speed_bench_chart, relief_defense_chart):
         self.home_team = home_team
@@ -2543,10 +2559,16 @@ def load_team_from_json(file_path):
         return None
 
 def main():
-    # Define the path to league.json using the BASE_DIRECTORY
-    league_file_path = os.path.join(BASE_DIRECTORY, 'league.json')
+    # Define the path to league file based on LEAGUE_TYPE
+    if LEAGUE_TYPE == "fictional":
+        league_file_name = 'league_fictional.json'
+    else:
+        league_file_name = 'league.json'
 
-    # Load the league structure from league.json
+    league_file_path = os.path.join(BASE_DIRECTORY, league_file_name)
+    logger.info(f"Loading league structure from: {league_file_path}")
+
+    # Load the league structure from the appropriate league file
     with open(league_file_path, 'r') as f:
         league_data = json.load(f)
     
@@ -2572,9 +2594,13 @@ def main():
     # Schedule files use numeric IDs, but team_lookup uses string IDs like "BAL_2023"
     schedule_id_map = {i+1: team_id for i, team_id in enumerate(all_team_ids)}
 
+    # Get the appropriate JSON directory based on LEAGUE_TYPE setting
+    team_json_dir = get_team_json_directory()
+    logger.info(f"Loading teams from: {team_json_dir} (LEAGUE_TYPE={LEAGUE_TYPE})")
+
     for team_id in all_team_ids:
-        # Construct the full file path by joining the base directory with the team file name
-        file_path = os.path.join(BASE_DIRECTORY, f'team_id_{team_id}.json')
+        # Construct the full file path using the team JSON directory
+        file_path = os.path.join(str(team_json_dir), f'team_id_{team_id}.json')
         logger.debug(f"Loading team data from: {file_path}")
         try:
             team = load_team_from_json(file_path)
