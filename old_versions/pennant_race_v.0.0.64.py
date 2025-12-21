@@ -1,78 +1,37 @@
 import random
 import pandas as pd
+import pygame
 import json
 import os
 import sys
 import math
 import logging
-import pygame
 from datetime import datetime, timedelta
+from pathlib import Path
 
-# test
+# Add /Documents/_CODE/common to sys.path
+COMMON_PATH = Path.home() / "Documents/_code/common"
+sys.path.insert(0, str(COMMON_PATH))
 
-'''
-# PRIORITY NEED TO QUASH THIS BUG AttributeError: 'NoneType' object has no attribute 'fatigue_cache'
-# ALSO looks like we have scenarios where (starting) pitcher allowed only unearned runs and but was either getting a win, or they other pitcher would get a loss (partly as a result of very low BVs the hit negative territory and get normalised to 0), also these types of shutouts not getting recognised as a shutout
-# need to add clutch for extra inning relief pitcher calc (PROBABLY A GOOD IDEA TO ACTUALLY ADD IT TO PITCHER GEN FIRST LOL)
-# create mechanic where if speed chart is invoked, we also check catchers throwing rating (will need to make that rating in the player gen)
-# need to decrease injury length
-# starters pulled early (for exceeding run threshold) are not getting enough runs assigned to them in some cases. they should get the majority of them in that circumstance
-# relief pitcher fatigue tracking as a function of batters faced within X amount of days
-# fielding bonus for double play partnerships (eg, if one fielding rating is called, check to see if its 2B/SS and potentially add partners fielding rating too)
-# all extra inning games end in 1 run difference, need some variety?
-# GAMES BEHIND is being calculated incorrectly. 
-# need to add team_city to standings
-# need to add loggers to playoffs esp for pitcher rest/fatigue/last days started tracking
-# are we counting off days for teams in schedule? ie even though game days proceed in order (1, 2, 3, 4, 5 etc), not every team plays each game day (ie travel day) so are we then giving that team a day off for rotation/rest purposes?
-# it looks like teams that have poor offense and good (or at least average) pitching (2023 brewers, yankees) have poor records consistently prolly bc we are weighted heavier on batting ratings vs pitching ratings; when calculating BV we use batting and eye but not power, which is likely also penalising these teams (these are IRL teams)
-# may have to start considering separate roster management program (trades, promoting/demoting, dfa, contracts, etc) and possible a more robust db like postgres
-# need to get players injury rating involved in injury class calcs
-# player retirements, depends on archetype and age vs decline age diff (also consider stats somehow) - prolly needs to be in a different module altogether - preobably a separate module (GM)
-# something wrong with last start day being reset in playoffs? leading to the short-rested starter prob we see at beginning of season
-# dont forget to finish getting CLI worked in 
-# if extra innings, make sure CG/SHO is nullified
-# determining defense. we do have a roll for a fielding position modifier (for a specific position). but what if we (also?) used a team modifier that took into account every fielder (basically totaling up the fielding ratings)?
-# need to add section that will factor in manager ratings, weather, HFA, etc (and see above for fielding). perhaps one use of manager ratings would be in extra innings, before we use dice as tie breakers
-# add indiv stat tracking
-# need to round off runs in various places and BV values
-# do i need self.makeup in class Player and class Pitcher?
-# ballpark can have more specific modifiers (power, contact, etc), perhaps a fielding mod if its turf or grass, etc. same for dome or not
-# leadership attribute - this could help mitigate low morale, or increase morale when i get around to making team morale calcs (morale should be a high number for granularitys sake and also we will be adding quite a bit throughout the year for things like wins, losses, streaks, personal achivements/stats, making the playoffs, under/overperforming, etc)
-# i can make indiv morale calc function just to start counting it appropriately, will actually have impact in game when i make GM module (***these last 2 are related to the fic player module qv)
-# relief pitcher usage in blowouts, when losing by x amount of runs we need to see if SP was pulled early and then how to handle relief pitchers as far as how many, total ip, and any potential position players used (mlb rule: allowed when losing by 8+, winning by 10+ or extra_innings) - would need to prioritize using lower quality relievers to mop up innings depending on the score
-# future idea: we move away from the literal dice-roll mechanic to a more normal probability based on 0.0 - 1.0 then scale those ratings to 20-80 for players, this could be used to make a 2.0 version of game that generates individual game data (we dont actually play the game play by play but generate what happened)
-# two-way players?
-# not enough team shutouts (in MLB 2023, there were 35 CG, 21 complete game shutouts, 309 team shutouts, we look pretty good on the former 2 but way short on the latter)
-# is higher white die consistently good for offense and bad for defense? 
-# start working on getting manager mechanics involved in game resolution
-# pitcher abuse point: how many innings pitched on short rest or fatigued if relief pitcher
-# any connection to fatigue/injuries and playing regularly on astroturf?
-'''
+from data_paths_pennant_fever import *
 
-# Configure logging
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-log_filename = f"/Users/sputnik69/Documents/_CODE/_pennant_race/logs/pennant_race_log_{timestamp}.txt"
+from common_logger import setup_logger
 
-# Create a logger
-logger = logging.getLogger('PennantRaceSimulation')
-logger.setLevel(logging.DEBUG)  # Set to DEBUG to capture all logs
+# Guard against multiple initializations (e.g., if module is reimported)
+if not logging.getLogger("pennant_fever").hasHandlers():
+    logger = setup_logger(
+        name="pennant_fever",
+        log_dir=PENNANT_FEVER_LOGS_GAME_DIR,
+        prefix="pennant_fever",
+        console_level=logging.DEBUG
+    )
+    logger.debug("Logger initialized. Starting the pennant_fever module.")
+else:
+    # Logger already exists, reuse it
+    logger = logging.getLogger("pennant_fever")
+    logger.debug("Logger reused (module reimport detected).")
 
-# File handler for detailed debug information
-file_handler = logging.FileHandler(log_filename, mode='w')
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-
-# Console handler for more user-friendly game output (info level or higher)
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)  # Change level to INFO or higher to skip DEBUG logs
-console_handler.setFormatter(logging.Formatter('%(message)s'))
-
-# Add handlers to the logger
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
-
-# Disable propagation to prevent duplicate logging
-logger.propagate = False
+PENNANT_FEVER_DIR.mkdir(parents=True, exist_ok=True)
 
 BASE_DIRECTORY = '/Users/sputnik69/Documents/_CODE/_pennant_race/'
 

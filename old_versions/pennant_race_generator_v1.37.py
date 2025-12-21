@@ -118,7 +118,6 @@ logger.propagate = False
 
 # START LOADING DATA
 
-
 # Load your corporate sponsor names and league name parts
 corporate_names_df = pd.read_excel(r'C:\Users\vadim\Documents\Code\_pennant_race\CorpoNames\corporate_names.xlsx')
 league_name_sources_df = pd.read_excel(r'C:\Users\vadim\Documents\Code\_pennant_race\CorpoNames\league_name_sources.xlsx')
