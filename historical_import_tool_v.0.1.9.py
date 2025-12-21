@@ -1,11 +1,23 @@
 import pandas as pd
 import json
 import os
+import sys
 import numpy as np
-import pandas as pd
 import random
 import unicodedata
 import math
+from pathlib import Path
+
+# Add common folder to sys.path for shared modules
+COMMON_PATH = Path.home() / "Documents/_code/common"
+sys.path.insert(0, str(COMMON_PATH))
+
+from data_paths_pennant_fever import (
+    PENNANT_FEVER_DATA_DIR,
+    PENNANT_FEVER_JSON_MLB_DIR,
+    MLB_2023_FILE,
+    HISTORICAL_DATA_DIR,
+)
 
 # generate more granular ratings (3 decimal points eg 0.456, 1.234 etc) these number will get added through the play resolution process in the main game and eventually we round off the runs anyway but granularity differentiates players more than the coarse ratings (qv the fictional generator for specific code)
 # need to build in era/year adjustments - might be good to have a separate file with yearly calculation distributions for average, power, etc (there is a historical wOBA list on fangraphs)
@@ -44,20 +56,17 @@ def normalize_name(name):
     
     return name_cleaned
 
-# Load the Excel file
-file_path = r'C:\\Users\\vadim\\Documents\\Code\\_pennant_race\\2023_MLB.xlsx'
-
-# Total games played is constant
+# Total games played is constant (default for modern MLB)
 total_games_played = 162
 
-# Load relevant sheets
-team_bat_df = pd.read_excel(file_path, sheet_name='TEAM_BAT')  # Team Batting data
-batting_df = pd.read_excel(file_path, sheet_name='BAT')    # Player Batting data
-fielding_df = pd.read_excel(file_path, sheet_name='FIELD')  # Player Fielding data
-pitching_df = pd.read_excel(file_path, sheet_name='PIT')  # Player Pitching data
-roster_df = pd.read_excel(file_path, sheet_name='ROSTER')  # Roster sheet for metadata
-manager_df = pd.read_excel(file_path, sheet_name='MANAGER')  # Manager data
-general_manager_df = pd.read_excel(file_path, sheet_name='GM')  # General Manager data
+# Global DataFrames - will be loaded when process_team_roster is called
+team_bat_df = None
+batting_df = None
+fielding_df = None
+pitching_df = None
+roster_df = None
+manager_df = None
+general_manager_df = None
 
 # Function to split sections (players, batting, pitching, etc.) from relevant sheets
 def split_sections(team_abbr):
@@ -1305,7 +1314,7 @@ def create_player_json(player_row, ranker, starters_threshold, batting_df, field
 
     fielder_row = fielding_df[fielding_df['player_id'] == player_id].squeeze()
     primary_position = fielder_row.get('position', 'Unknown')
-    secondary_position = fielder_row.get('secondary_position', None)
+    secondary_position = fielder_row.get('sec_position', None)
     secondary_position = "None" if pd.isna(secondary_position) else secondary_position
 
     # Extract batting stats for the player
@@ -1356,6 +1365,17 @@ def create_player_json(player_row, ranker, starters_threshold, batting_df, field
     # Generate a random clutch rating within the range [-2, 2]
     clutch = max(min(int(np.random.normal(0, 1)), 2), -2)
 
+    # Try to get splits data if available in the spreadsheet (fallback to 0)
+    # These would come from columns like 'AVG_vs_L', 'AVG_vs_R', etc. if present
+    splits_L = player_batting_stats.get('splits_L', 0)  # Fallback to 0
+    splits_R = player_batting_stats.get('splits_R', 0)  # Fallback to 0
+
+    # If splits columns don't exist, default to 0
+    if pd.isna(splits_L):
+        splits_L = 0
+    if pd.isna(splits_R):
+        splits_R = 0
+
     # Construct player JSON
     return {
         "player_id": player_id,
@@ -1372,6 +1392,8 @@ def create_player_json(player_row, ranker, starters_threshold, batting_df, field
         "batting": calculate_bat_rating(avg),
         "power": calculate_power_rating(slg),
         "eye": calculate_eye_rating(bb_pct, k_pct),
+        "splits_L": int(splits_L),  # Splits vs left-handed pitchers
+        "splits_R": int(splits_R),  # Splits vs right-handed pitchers
         "speed": speed,
         "fielding": calculate_fielding_rating(rtot_yr),
         "x_hr": calculate_player_x_hr(player_hr, team_hr, ranker, games_played),
@@ -1430,8 +1452,8 @@ def create_pitcher_json(player_row, pitching_df, fielding_df):
     # Calculate games relieved (G - GS)
     games_relieved = g - gs
 
-    # Determine pitcher type based on games started (Starter or Reliever)
-    pitcher_type = "Starter" if gs > 3 else "Reliever"
+    # Determine pitcher type based on games started (SP or RP to match game expectations)
+    pitcher_type = "SP" if gs > 3 else "RP"
 
     # Fetch fielding stats for the pitcher
     pitcher_fielding_stats = fielding_df[fielding_df['player_id'] == player_id].squeeze()
@@ -1439,6 +1461,19 @@ def create_pitcher_json(player_row, pitching_df, fielding_df):
 
     # Convert height to cm and weight to kg
     height_cm, weight_kg = imperial_to_metric(height, weight)
+
+    # Try to get splits data if available in the spreadsheet (fallback to 0)
+    splits_L = player_pitching_stats.get('splits_L', 0)  # Fallback to 0
+    splits_R = player_pitching_stats.get('splits_R', 0)  # Fallback to 0
+
+    # If splits columns don't exist, default to 0
+    if pd.isna(splits_L):
+        splits_L = 0
+    if pd.isna(splits_R):
+        splits_R = 0
+
+    # Generate clutch rating for pitcher (same logic as batters)
+    clutch = max(min(int(np.random.normal(0, 1)), 2), -2)
 
     # Build the pitcher JSON object
     return {
@@ -1454,12 +1489,15 @@ def create_pitcher_json(player_row, pitching_df, fielding_df):
         "start_value": calculate_start_value(era, gs),  # Calculate start value based on ERA
         "endurance": calculate_endurance(ip, cg, gs),  # Calculate endurance based on innings, CG, and GS
         "rest": calculate_rest(gs),  # Calculate rest based on GS
-        "CG_rating": calculate_cg_rating(cg, gs),  # Complete games rating
-        "SHO_rating": calculate_sho_rating(sho, gs),  # Shutouts rating
+        "cg_rating": calculate_cg_rating(cg, gs),  # Complete games rating (lowercase to match game)
+        "sho_rating": calculate_sho_rating(sho, gs),  # Shutouts rating (lowercase to match game)
+        "splits_L": int(splits_L),  # Splits vs left-handed batters
+        "splits_R": int(splits_R),  # Splits vs right-handed batters
         "relief_value": calculate_relief_value(era),  # Relief value calculation for relievers
         "fatigue": calculate_fatigue(games_relieved),  # Fatigue calculation for relievers
         "fielding": calculate_pitcher_fielding_rating(rdrs_yr),  # Fielding rating for pitchers
-        "injury": calculate_injury_rating(), 
+        "clutch": clutch,  # Clutch rating for pitcher
+        "injury": calculate_injury_rating(),
         "morale": 0,  # Placeholder for morale rating
         "popularity": 0,  # Placeholder for popularity rating
         "salary": salary,  # Player's salary
@@ -1550,15 +1588,21 @@ def convert_to_python_types(data):
         return data
 
 def process_team_roster(excel_file, save_directory):
+    # Declare globals so we can update them
+    global team_bat_df, batting_df, fielding_df, pitching_df, roster_df, manager_df, general_manager_df
+
     # Load Excel sheets
     print("Loading Excel sheets...")
     team_df = pd.read_excel(excel_file, sheet_name='TEAM')
-    batting_df = pd.read_excel(excel_file, sheet_name='BAT')
-    pitching_df = pd.read_excel(excel_file, sheet_name='PIT')
-    fielding_df = pd.read_excel(excel_file, sheet_name='FIELD')
-    roster_df = pd.read_excel(excel_file, sheet_name='ROSTER')
-    manager_df = pd.read_excel(excel_file, sheet_name='MANAGER')  # Load manager data
+    team_bat_df = pd.read_excel(excel_file, sheet_name='TEAM_BAT')  # Set global
+    batting_df = pd.read_excel(excel_file, sheet_name='BAT')  # Set global
+    pitching_df = pd.read_excel(excel_file, sheet_name='PIT')  # Set global
+    fielding_df = pd.read_excel(excel_file, sheet_name='FIELD')  # Set global
+    fielding_df.columns = fielding_df.columns.str.lower()  # Normalize to lowercase
+    roster_df = pd.read_excel(excel_file, sheet_name='ROSTER')  # Set global
+    manager_df = pd.read_excel(excel_file, sheet_name='MANAGER')  # Set global
     gm_df = pd.read_excel(excel_file, sheet_name='GM')  # Load GM data
+    general_manager_df = gm_df  # Set global
 
     team_pitching_df = pd.read_excel(excel_file, sheet_name='TEAM_PIT')
 
@@ -1761,7 +1805,14 @@ def process_team_roster(excel_file, save_directory):
         print(f"Team data saved to {json_filename}")
 
 if __name__ == "__main__":
-    excel_file = r"C:\Users\vadim\Documents\Code\_pennant_race\2023_MLB.xlsx"
-    save_directory = r"C:\Users\vadim\Documents\Code\_pennant_race\json_output"  # Specify your desired output directory
+    # Use centralized paths from data_paths_pennant_fever
+    excel_file = str(MLB_2023_FILE)
+    save_directory = str(PENNANT_FEVER_JSON_MLB_DIR)
+
+    # Ensure output directory exists
+    os.makedirs(save_directory, exist_ok=True)
+
+    print(f"Input file: {excel_file}")
+    print(f"Output directory: {save_directory}")
 
     process_team_roster(excel_file, save_directory)

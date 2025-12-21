@@ -1,6 +1,6 @@
 import random
 import pandas as pd
-import pygame
+# import pygame  # Commented out - micro/GUI simulation not yet complete
 import json
 import os
 import sys
@@ -356,7 +356,7 @@ class Game:
                 batter_index = total_outs_distributed % lineup_size  # Wrap around the lineup using modulus
                 player = lineup[batter_index]  # Get the current batter
 
-                player_bv = player.batting + player.eye + (player.power * 0.6)
+                player_bv = player.batting + player.eye + (player.power * 0.4)  # Reduced from 0.6 to lower scoring
                 batter_modifier = 0  # Default modifier for switch-hitters
                 reliever_modifier = 0  # Initialize reliever modifier
 
@@ -548,7 +548,7 @@ class Game:
                 # Check if power_player is valid
                 if power_player and hasattr(power_player, 'name') and hasattr(power_player, 'batting'):
                     logger.debug(f"Step 4: Power bonus for {power_player.name} with a batting value of {power_player.batting}.")
-                    power_bonus = power_player.power * dice_sum
+                    power_bonus = power_player.power * white_die  # Changed from dice_sum to white_die to reduce scoring inflation
                     power_bonus += ballpark.stadium_value  # Apply the ballpark modifier
                     logger.debug(f"Step 4: Stadium value for {ballpark.ballpark_name}: {ballpark.stadium_value}")
                     logger.debug(f"Step 4a: Power bonus adjusted with ballpark ({ballpark.stadium_value}) for a total of: {power_bonus}")
@@ -562,16 +562,16 @@ class Game:
                 if isinstance(speed_bench_result, tuple):
                     # Handle the case where it's a tuple representing the bonus type and value
                     bonus_type, bonus_value = speed_bench_result
-                    BV += bonus_value * dice_sum
-                    logger.debug(f"Step 4b: Triple: {bonus_type} bonus (+{bonus_value * dice_sum})")
+                    BV += bonus_value * white_die  # Changed from dice_sum to white_die
+                    logger.debug(f"Step 4b: Triple: {bonus_type} bonus (+{bonus_value * white_die})")
                     logger.debug(f"BV after speed/bench bonus: {BV}")
                 else:
                     # Check if speed_bench_result contains a valid player object
                     if speed_bench_result and isinstance(speed_bench_result, tuple):
                         bonus_type, bonus_value = speed_bench_result
                         logger.debug(f"Step 4b: Speed/Bench bonus for bonus type {bonus_type} with value {bonus_value}.")
-                        BV += bonus_value * dice_sum
-                        logger.debug(f"Step 4b: Triple: {bonus_type} bonus (+{bonus_value * dice_sum})")
+                        BV += bonus_value * white_die  # Changed from dice_sum to white_die
+                        logger.debug(f"Step 4b: Triple: {bonus_type} bonus (+{bonus_value * white_die})")
                         logger.debug(f"BV after speed/bench bonus: {BV}")
                     else:
                         logger.debug(f"Step 4b: Invalid speed/bench result or missing attributes in result: {speed_bench_result}")
@@ -610,7 +610,7 @@ class Game:
                 logger.debug(f"Step 6: Power bonus for {power_player.name} with a batting value of {power_player.batting}.")
 
                 if power_player:
-                    power_bonus = power_player.power * dice_sum
+                    power_bonus = power_player.power * white_die  # Changed from dice_sum to white_die to reduce scoring inflation
                     power_bonus += ballpark.stadium_value  # Apply the ballpark modifier
                     logger.debug(f"Step 6: Stadium value for {ballpark.ballpark_name}: {ballpark.stadium_value}")
                     logger.debug(f"Step 6a: Power bonus adjusted with ballpark ({ballpark.stadium_value}) for a total of: {power_bonus}")
@@ -626,8 +626,8 @@ class Game:
                 if isinstance(speed_bench_result, tuple):
                     # Handle the case where it's a tuple representing the bonus type and value
                     bonus_type, bonus_value = speed_bench_result
-                    BV += bonus_value * dice_sum
-                    logger.debug(f"Step 6c: Doubles: {bonus_type} bonus (+{bonus_value * dice_sum})")
+                    BV += bonus_value * white_die  # Changed from dice_sum to white_die
+                    logger.debug(f"Step 6c: Doubles: {bonus_type} bonus (+{bonus_value * white_die})")
                     logger.debug(f"BV after doubles bonus: {BV}")
 
                 else:
@@ -635,8 +635,8 @@ class Game:
                     if isinstance(speed_bench_result, list) and len(speed_bench_result) > 0 and hasattr(speed_bench_result[0], 'name'):
                         logger.debug(f"Step 6c: Speed/Bench bonus for {speed_bench_result[0].name} with a batting value of {speed_bench_result[0].batting}.")
                         bonus_type, bonus_value = speed_bench_result
-                        BV += bonus_value * dice_sum
-                        logger.debug(f"Step 6c: Doubles: {bonus_type} bonus (+{bonus_value * dice_sum})")
+                        BV += bonus_value * white_die  # Changed from dice_sum to white_die
+                        logger.debug(f"Step 6c: Doubles: {bonus_type} bonus (+{bonus_value * white_die})")
                         logger.debug(f"BV after doubles bonus: {BV}")
                     else:
                         logger.debug(f"Step 6c: No valid speed/bench bonus player found or invalid data in result: {speed_bench_result}")
@@ -700,7 +700,7 @@ class Game:
         starter_earned_runs, starter_unearned_runs, starter_innings = self.calculate_runs_for_starter(total_earned_runs, total_unearned_runs, opponent_pitcher, relief_pitching, current_day)
 
         # If the starter's innings were reduced, recalculate the bullpen innings and get the distribution
-        if starter_innings < 9.0:
+        if starter_innings < 9.0 and relief_pitching is not None:
             logger.debug("Starter innings were reduced, recalculating relief innings.")
             reliever_innings_distribution = self.recalculate_relief_innings(starter_innings, relief_pitching, current_day)
         else:
@@ -728,8 +728,8 @@ class Game:
         """
         used_relievers = self.used_relievers_home if team == self.home_team else self.used_relievers_away
         available_relievers = [
-            p for p in team.pitchers 
-            if p.type == 'Reliever' and p not in used_relievers
+            p for p in team.pitchers
+            if p.type == 'RP' and p not in used_relievers  # Fixed: JSON uses 'RP' not 'Reliever'
         ]
         
         logger.debug(f"Available relievers for {team.team_name} (excluding those already used): {[p.name for p in available_relievers]}")
@@ -1010,6 +1010,11 @@ class Game:
         logger.debug(f"Chosen Relievers: {chosen_relievers}")
         logger.debug(f"Team Relievers: {team_relievers}")
 
+        # 2a. If no relievers were used (complete game), no save possible
+        if team_relievers is None or len(team_relievers) == 0:
+            logger.debug("No relievers used in this game, no save possible.")
+            return None
+
         # 3. Remove the reliever who got the win from consideration for the save
         eligible_relievers = [reliever for reliever in team_relievers if reliever != winning_reliever]
         logger.debug(f"Eligible Relievers: {eligible_relievers}")
@@ -1162,6 +1167,32 @@ class Team:
         # Instantiate Ballpark object for the team
         self.ballpark = Ballpark(ballpark_name, ballpark_capacity, ballpark_weather, stadium_value)
 
+    def get_avg_bv(self):
+        """Calculate average BV for the starting lineup (batting + eye + power*0.4)."""
+        starters = [p for p in self.players if p.role == 'Starter'][:9]
+        if not starters:
+            return 0.0
+        total_bv = sum(p.batting + p.eye + (p.power * 0.4) for p in starters)
+        return round(total_bv / len(starters), 1)
+
+    def get_avg_sv(self):
+        """Calculate average start_value for starting pitchers."""
+        # Handle both 'SP' (historical import) and 'Starter' (generator)
+        starters = [p for p in self.pitchers if p.type in ('SP', 'Starter')]
+        if not starters:
+            return 0.0
+        total_sv = sum(p.start_value for p in starters)
+        return round(total_sv / len(starters), 1)
+
+    def get_avg_rv(self):
+        """Calculate average relief_value for relievers."""
+        # Handle both 'RP' (historical import) and 'Reliever' (generator)
+        relievers = [p for p in self.pitchers if p.type in ('RP', 'Reliever')]
+        if not relievers:
+            return 0.0
+        total_rv = sum(p.relief_value for p in relievers)
+        return round(total_rv / len(relievers), 1)
+
     def save_team_data(self, file_name=None):
         """Save the team's data to a JSON file."""
         if file_name is None:
@@ -1225,7 +1256,7 @@ class Team:
     def get_available_relievers(self, current_day):
         available_relievers = []
         for pitcher in self.pitchers:
-            if pitcher.type == 'Reliever':  # Only look at relievers
+            if pitcher.type == 'RP':  # Only look at relievers (JSON uses 'RP' not 'Reliever')
                 logger.debug(f"Checking reliever: {pitcher.name}")
                 logger.debug(f"current_day: {current_day}, last_relief_day: {pitcher.last_relief_day}, fatigue: {pitcher.fatigue}, relief_value: {pitcher.relief_value}")
                 
@@ -1253,7 +1284,7 @@ class Team:
         for player in self.players:
             if player.role == 'Starter':  # Assuming only starters contribute to batting value
                 # Calculate base batting value as batting + eye + a fraction of power
-                player_bv = player.batting + player.eye + (player.power * 0.6)
+                player_bv = player.batting + player.eye + (player.power * 0.4)  # Reduced from 0.6 to lower scoring
 
                 # Initialize default modifiers
                 batter_modifier = 0
@@ -1473,7 +1504,7 @@ class ReliefPitching:
 
     def calculate_relief_value(self, relievers_used, current_day, fatigue_cache):
         available_relievers = sorted(
-            [p for p in self.team.pitchers if p.type == 'Reliever' and p not in self.used_relievers],
+            [p for p in self.team.pitchers if p.type == 'RP' and p not in self.used_relievers],  # Fixed: JSON uses 'RP'
             key=lambda p: p.relief_value * self.get_fatigue_multiplier(p, current_day, fatigue_cache),
             reverse=True
         )
@@ -2109,7 +2140,7 @@ class Standings:
             for division_name, teams in divisions.items():
                 logger.info(f"\n{division_name} Division")
                 logger.info("-" * (len(division_name) + 10))
-                logger.info(f"{'Team':<20} {'W':<5} {'L':<5} {'PCT':<6} {'GB':<5} {'RS':<5} {'RA':<5} {'Pyth W-L':<10} {'Luck':<5} {'Home':<10} {'Away':<10} {'1-Run':<10} {'Extra':<10} {'vs RHP':<10} {'vs LHP':<10} {'Win Streak':<13} {'Losing Streak':<13} {'Most Runs Scored':<18} {'Most Runs Allowed':<18}")
+                logger.info(f"{'Team':<20} {'W':<5} {'L':<5} {'PCT':<6} {'GB':<5} {'RS':<5} {'RA':<5} {'BV':<5} {'SV':<5} {'RV':<5} {'Pyth W-L':<10} {'Luck':<5} {'Home':<10} {'Away':<10} {'1-Run':<10} {'Extra':<10} {'vs RHP':<10} {'vs LHP':<10}")
 
                 # Get the stats for the teams and sort them by win percentage
                 team_list = []
@@ -2134,10 +2165,14 @@ class Standings:
                     extra_innings_record = f"{team_stats.extra_innings_games['wins']}-{team_stats.extra_innings_games['losses']}"
                     vs_rhp_record = f"{team_stats.vs_rhp['wins']}-{team_stats.vs_rhp['losses']}"
                     vs_lhp_record = f"{team_stats.vs_lhp['wins']}-{team_stats.vs_lhp['losses']}"
-                    most_runs_scored = team_stats.most_runs_in_a_game
-                    most_runs_allowed = team_stats.most_runs_allowed_in_a_game
-                    
-                    logger.info(f"{team_stats.team_name:<20} {wins:<5} {losses:<5} {win_pct:<6} {games_behind:<5} {team_stats.run_scored:<5} {team_stats.run_allowed:<5} {team_stats.pyth_wins}-{team_stats.pyth_losses:<10} {team_stats.luck:<5} {home_record:<10} {away_record:<10} {one_run_record:<10} {extra_innings_record:<10} {vs_rhp_record:<10} {vs_lhp_record:<10} {team_stats.longest_winning_streak:<13} {team_stats.longest_losing_streak:<13} {most_runs_scored:<18} {most_runs_allowed:<18}")
+
+                    # Get team rating averages (BV, SV, RV)
+                    team_obj = self.team_lookup.get(team_id)
+                    avg_bv = team_obj.get_avg_bv() if team_obj else 0.0
+                    avg_sv = team_obj.get_avg_sv() if team_obj else 0.0
+                    avg_rv = team_obj.get_avg_rv() if team_obj else 0.0
+
+                    logger.info(f"{team_stats.team_name:<20} {wins:<5} {losses:<5} {win_pct:<6} {games_behind:<5} {team_stats.run_scored:<5} {team_stats.run_allowed:<5} {avg_bv:<5} {avg_sv:<5} {avg_rv:<5} {team_stats.pyth_wins}-{team_stats.pyth_losses:<10} {team_stats.luck:<5} {home_record:<10} {away_record:<10} {one_run_record:<10} {extra_innings_record:<10} {vs_rhp_record:<10} {vs_lhp_record:<10}")
 
 class Playoffs:
     def __init__(self, standings, team_stats_lookup, power_chart, speed_bench_chart, relief_defense_chart):
@@ -2327,11 +2362,9 @@ class Playoffs:
         world_series_winner = self.simulate_series(al_champion, nl_champion)
 
         # Display the results
-        # Convert team_id to integer before looking it up in team_lookup
-        world_series_winner_team_id = int(world_series_winner.team_id)
+        world_series_winner_team_id = world_series_winner.team_id
 
         logger.debug(f"Available team IDs in team_lookup: {list(self.standings.team_lookup.keys())}")
-        # Lookup the team name in team_lookup using the integer team_id
         logger.debug(f"World Series Champion: {self.standings.team_lookup[world_series_winner_team_id].team_name}")
 
         return world_series_winner
@@ -2437,26 +2470,26 @@ def load_team_from_json(file_path):
             logger.debug(f"Creating pitcher: {p}")  # Add debug
             pitcher = Pitcher(
                 name=p['name'],
-                type=p['type'],  # Use the type field to specify if SP or RP
-                splits_L=p['splits_L'],
-                splits_R=p['splits_R'],
-                start_value=p['start_value'],
-                relief_value=p['relief_value'],
-                endurance=p['endurance'],
-                rest=p['rest'],
+                type=p.get('type', 'RP'),  # Default to reliever for legacy JSON files
+                splits_L=p.get('splits_L', 0),  # Default to 0 for legacy JSON files
+                splits_R=p.get('splits_R', 0),  # Default to 0 for legacy JSON files
+                start_value=p.get('start_value', 0),
+                relief_value=p.get('relief_value', 0),
+                endurance=p.get('endurance', 0),
+                rest=p.get('rest', 5),
                 throws=p.get('throws', 'R'),  # Default to 'R' if not provided
                 injury=p.get('injury', 0),
                 salary=p.get('salary', 0),
-                cg_rating=p.get('cg_rating', 666),  # Add this line
-                sho_rating=p.get('sho_rating', 666),  # Add this line
-                fatigue=p.get('fatigue', 0),  # Add this line
-                clutch=p.get('clutch', 0)  # Add this line
+                cg_rating=p.get('cg_rating', p.get('CG_rating', 666)),  # Support both cases
+                sho_rating=p.get('sho_rating', p.get('SHO_rating', 666)),  # Support both cases
+                fatigue=p.get('fatigue', 0),
+                clutch=p.get('clutch', 0)
             )
             # Ensure `last_start_day` is initialized
             pitcher.last_start_day = p.get('last_start_day', 0)  # Default to 0 if not available
             pitchers.append(pitcher)
         except Exception as e:
-            logger.debug(f"Error creating pitcher: {p.get('name', 'Unknown')} - {e}")
+            logger.warning(f"Error creating pitcher: {p.get('name', 'Unknown')} - {e}")
 
     # Create Player objects with extra debugging
     players = []
@@ -2465,14 +2498,14 @@ def load_team_from_json(file_path):
             logger.debug(f"Creating player: {pl}")  # Debug: Show player data
             player = Player(
                 name=pl['name'],
-                role=pl['role'],
-                batting=pl['batting'],
-                power=pl['power'],
-                splits_L=pl['splits_L'],
-                splits_R=pl['splits_R'],
-                speed=pl['speed'],
-                fielding=pl['fielding'],
-                clutch=pl['clutch'],
+                role=pl.get('role', 'Starter'),
+                batting=pl.get('batting', 0),
+                power=pl.get('power', 0),
+                splits_L=pl.get('splits_L', 0),  # Default to 0 for legacy JSON files
+                splits_R=pl.get('splits_R', 0),  # Default to 0 for legacy JSON files
+                speed=pl.get('speed', 0),
+                fielding=pl.get('fielding', 0),
+                clutch=pl.get('clutch', 0),  # Default to 0 for legacy JSON files
                 position=pl.get('position', None),
                 sec_position=pl.get('sec_position', None),
                 bats=pl.get('bats', 'R'),  # Default to 'R' if not provided
@@ -2482,7 +2515,7 @@ def load_team_from_json(file_path):
             )
             players.append(player)
         except Exception as e:
-            logger.debug(f"Error creating player: {pl.get('name', 'Unknown')} - {e}")
+            logger.warning(f"Error creating player: {pl.get('name', 'Unknown')} - {e}")
     
     logger.debug(f"Players created successfully for team {team_id}")
 
@@ -2528,12 +2561,20 @@ def main():
     # Dictionary to store team stats for each team
     team_stats_lookup = {}
 
-    # Loop through team IDs and load each team's data
-    # Define the number of teams
-    num_teams = 30
-    for team_id in range(1, num_teams + 1):
+    # Loop through team IDs from the league structure and load each team's data
+    # Extract all team IDs from the league structure
+    all_team_ids = []
+    for sub_league in sub_leagues:
+        for division in sub_league['divisions']:
+            all_team_ids.extend(division['teams'])
+
+    # Create mapping from schedule numeric IDs (1-30) to team string IDs
+    # Schedule files use numeric IDs, but team_lookup uses string IDs like "BAL_2023"
+    schedule_id_map = {i+1: team_id for i, team_id in enumerate(all_team_ids)}
+
+    for team_id in all_team_ids:
         # Construct the full file path by joining the base directory with the team file name
-        file_path = os.path.join(BASE_DIRECTORY, f'team_id_{team_id}.json')  # Assuming team files are named in this format
+        file_path = os.path.join(BASE_DIRECTORY, f'team_id_{team_id}.json')
         logger.debug(f"Loading team data from: {file_path}")
         try:
             team = load_team_from_json(file_path)
@@ -2575,8 +2616,9 @@ def main():
     for day in range(1, 187):
         games_today = schedule.get_games_for_day(day)
         for game_info in games_today:
-            away_team_id = game_info['away']
-            home_team_id = game_info['home']
+            # Convert schedule's numeric IDs to team string IDs
+            away_team_id = schedule_id_map[game_info['away']]
+            home_team_id = schedule_id_map[game_info['home']]
 
             away_team = team_lookup[away_team_id]
             home_team = team_lookup[home_team_id]
@@ -2610,8 +2652,10 @@ def main():
     playoffs.simulate_playoffs()
 
 # ----------------------------
-# GUI using Pygame
+# GUI using Pygame (COMMENTED OUT - micro/at-bat simulation incomplete)
 # ----------------------------
+# To restore: uncomment this section and 'import pygame' at top of file
+'''
 class GUI:
     def __init__(self, game):
         self.game = game
@@ -2645,7 +2689,7 @@ class GUI:
         # Field diagram (next 200px)
         field_rect = pygame.Rect(300, 100, 600, 400)
         self.draw_field(field_rect)
-        
+
         # Play-by-Play and options (bottom 400px)
         pbp_rect = pygame.Rect(300, 500, 600, 300)
         self.draw_play_by_play(pbp_rect)
@@ -2696,9 +2740,9 @@ class GUI:
             y_offset += 25
 
 # ----------------------------
-# Main Loop: Integrating Simulation and GUI
+# Main Loop: Integrating Simulation and GUI (EXPERIMENTAL - INCOMPLETE)
 # ----------------------------
-def main():
+def main_pygame():
     mode = "human"  # "human" for human vs AI; "ai" for AI vs AI simulation
     game = Game(mode)
     gui = GUI(game)
@@ -2748,9 +2792,10 @@ def main():
 
     pygame.quit()
     sys.exit()
+'''
 
 if __name__ == "__main__":
-    main()
+    main()  # Calls the macro season simulation at line 2512
 
 
 
