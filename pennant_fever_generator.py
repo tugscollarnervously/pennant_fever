@@ -52,15 +52,15 @@ class BatterProfile:
         """Generate a float rating with three decimal points based on a given range."""
         floor, ceiling = range_tuple
 
-        # Generate a float rating within the range
-        if self.archetype.name in ["star", "5-tool"]:
-            # High-quality archetypes skew towards the ceiling
+        # Generate a float rating within the range (20-80 scale)
+        if self.archetype.name in ["70", "80"]:
+            # Elite/All-Star archetypes skew towards the ceiling
             rating = self.skewed_random(floor, ceiling, skew="high")
-        elif self.archetype.name in ["scrub", "career minor leaguer", "september callup", "injury replacement"]:
-            # Low-quality archetypes skew towards the floor
+        elif self.archetype.name in ["20", "30"]:
+            # Poor archetypes skew towards the floor
             rating = self.skewed_random(floor, ceiling, skew="low")
         else:
-            # Neutral or moderate archetypes have a balanced distribution
+            # Average archetypes (40, 50, 60) have a balanced distribution
             rating = np.random.uniform(floor, ceiling)
 
         # Clamp the values within the floor/ceiling bounds and round to 3 decimal places
@@ -494,54 +494,81 @@ class Archetype:
 
     @staticmethod
     def get_archetype_probs(school_name, school_type):
+        """Get 20-80 scale probabilities for a school.
+
+        Returns CUMULATIVE probabilities for the 20-80 scouting scale.
+        Distribution is left-skewed (more replacement-level than elite):
+        - 20: ~3% (org filler)
+        - 30: ~10% (fringe)
+        - 40: ~25% (replacement level) - slightly more common
+        - 50: ~30% (average) - most common
+        - 60: ~18% (above average)
+        - 70: ~10% (plus)
+        - 80: ~4% (elite)
+        """
         logger.debug(f"LINE 444 - Entering get_archetype_probs - School: {school_name}, Type: {school_type}")
-        
-        # Handle international schools directly based on school_type
+
+        # Default distribution: left-skewed bell curve clustered around 40-50 (replacement to average)
+        # These are CUMULATIVE thresholds
+        default_probs = {
+            '20_prob': 0.03,   # 3% get 20-grade (worst)
+            '30_prob': 0.13,   # 10% get 30-grade
+            '40_prob': 0.38,   # 25% get 40-grade (replacement level)
+            '50_prob': 0.68,   # 30% get 50-grade (average) - peak
+            '60_prob': 0.86,   # 18% get 60-grade
+            '70_prob': 0.96,   # 10% get 70-grade
+            '80_prob': 1.00    # 4% get 80-grade (elite)
+        }
+
+        # Handle international schools - slightly better odds for elite programs
         if school_type == "INT":
             logger.debug(f"LINE 448 - International school detected. Using baseline probabilities.")
-            return {
-                'grade1_prob': 0.15, 'grade2_prob': 0.3, 'grade3_prob': 0.4,
-                'grade4_prob': 0.5, 'grade5_prob': 0.6, 'grade6_prob': 0.7,
-                'grade7_prob': 0.85, 'grade8_prob': 0.95, 'grade9_prob': 0.98,
-                'grade10_prob': 0.99
-            }
+            return default_probs
 
         # Determine if it's a high school or college (normalize the case)
         if school_type in ['HS', 'hs', 'high school', 'highschool']:
             school_df = high_school_df
         else:
             school_df = college_df
-        logger.debug(f"LINE 458 - School type: {school_type}, School DataFrame: {school_df}")
+        logger.debug(f"LINE 458 - School type: {school_type}")
 
         # Find matching rows after cleaning
         matching_rows = school_df[school_df['school_name'].str.strip().str.lower() == school_name.strip().lower()]
-        logger.debug(f"LINE 462 - Matching rows for school '{school_name}' in {school_type}: {matching_rows} - School DataFrame: {school_df}")
 
         if matching_rows.empty:
             # If no matching school is found, use default probabilities
             logger.debug(f"LINE 466 - Warning: School '{school_name}' not found in {school_type}. Using default probabilities.")
-            return {
-                'grade1_prob': 0.15, 'grade2_prob': 0.3, 'grade3_prob': 0.4,
-                'grade4_prob': 0.5, 'grade5_prob': 0.6, 'grade6_prob': 0.7,
-                'grade7_prob': 0.85, 'grade8_prob': 0.95, 'grade9_prob': 0.98,
-                'grade10_prob': 0.99
-            }
+            return default_probs
 
         # Return the grade probabilities from the matching row
         school_row = matching_rows.iloc[0]
-        logger.debug(f"LINE 476 - Found school '{school_name}' with probabilities: {school_row[['grade1_prob', 'grade10_prob']]}")
-        return {
-            'grade1_prob': school_row['grade1_prob'], 
-            'grade2_prob': school_row['grade2_prob'],
-            'grade3_prob': school_row['grade3_prob'], 
-            'grade4_prob': school_row['grade4_prob'],
-            'grade5_prob': school_row['grade5_prob'], 
-            'grade6_prob': school_row['grade6_prob'],
-            'grade7_prob': school_row['grade7_prob'], 
-            'grade8_prob': school_row['grade8_prob'],
-            'grade9_prob': school_row['grade9_prob'], 
-            'grade10_prob': school_row['grade10_prob']
-        }
+
+        # Check if school has 20-80 format columns
+        if '20_prob' in school_row.index:
+            # Read discrete probabilities and convert to cumulative
+            discrete_probs = {
+                '20_prob': school_row.get('20_prob', 0.03),
+                '30_prob': school_row.get('30_prob', 0.10),
+                '40_prob': school_row.get('40_prob', 0.25),
+                '50_prob': school_row.get('50_prob', 0.30),
+                '60_prob': school_row.get('60_prob', 0.18),
+                '70_prob': school_row.get('70_prob', 0.10),
+                '80_prob': school_row.get('80_prob', 0.04),
+            }
+
+            # Convert discrete to cumulative
+            cumulative = 0.0
+            cumulative_probs = {}
+            for grade in ['20_prob', '30_prob', '40_prob', '50_prob', '60_prob', '70_prob', '80_prob']:
+                cumulative += discrete_probs[grade]
+                cumulative_probs[grade] = min(cumulative, 1.0)  # Cap at 1.0
+
+            logger.debug(f"LINE 476 - Found school '{school_name}' with 20-80 probs (cumulative): {cumulative_probs}")
+            return cumulative_probs
+
+        # Legacy fallback: if school has old grade1-10 format, use defaults
+        logger.debug(f"LINE 480 - School '{school_name}' has legacy format, using default 20-80 probabilities.")
+        return default_probs
 
 class BatterProfile:
     # Class-level counter for generating unique player IDs
@@ -602,55 +629,41 @@ class BatterProfile:
             firstname = "xx"
         return f"{surname}{firstname}{BatterProfile._player_counter:02d}"
 
+    # 20-80 scale batter archetypes (7 grades)
     batter_archetypes = [
-        Archetype("scrub", 
-            contact_range=(0, 0), power_range=(0, 0), eye_range=(-3, -2), speed_range=(0, 0), splits_range=(-3, -1), 
-            fielding_range=(-3, -2), potential_range=(0, 0), 
+        Archetype("20",  # Well below average - org filler
+            contact_range=(0, 1), power_range=(0, 0), eye_range=(-3, -2), speed_range=(0, 1), splits_range=(-3, -1),
+            fielding_range=(-3, -2), potential_range=(0, 0),
             dev_ceiling_age=21, decline_age=28),
-        
-        Archetype("career minor leaguer", 
-            contact_range=(0, 1), power_range=(0, 1), eye_range=(-3, -1), speed_range=(0, 2), splits_range=(-3, 0),
-            fielding_range=(-3, 0), potential_range=(0, 0), 
+
+        Archetype("30",  # Below average - fringe prospect
+            contact_range=(0, 2), power_range=(0, 1), eye_range=(-2, 0), speed_range=(0, 3), splits_range=(-3, 0),
+            fielding_range=(-3, 0), potential_range=(0, 1),
             dev_ceiling_age=22, decline_age=29),
-        
-        Archetype("september callup", 
-            contact_range=(0, 2), power_range=(0, 1), eye_range=(-1, 0), speed_range=(0, 3), splits_range=(-2, 0),
-            fielding_range=(-2, 0), potential_range=(0, 1), 
-            dev_ceiling_age=23, decline_age=29),
-        
-        Archetype("injury replacement", 
-            contact_range=(1, 3), power_range=(0, 2), eye_range=(-1, 0), speed_range=(0, 4), splits_range=(-2, 1),
-            fielding_range=(-2, 0), potential_range=(0, 1), 
-            dev_ceiling_age=23, decline_age=29),
-        
-        Archetype("AAAA player", 
-            contact_range=(1, 4), power_range=(0, 3), eye_range=(0, 0), speed_range=(0, 4), splits_range=(-1, 1),
-            fielding_range=(-2, 1), potential_range=(0, 2), 
+
+        Archetype("40",  # Fringe average - replacement level
+            contact_range=(1, 4), power_range=(0, 3), eye_range=(-1, 0), speed_range=(0, 4), splits_range=(-2, 1),
+            fielding_range=(-2, 1), potential_range=(0, 2),
             dev_ceiling_age=24, decline_age=30),
-        
-        Archetype("backup", 
-            contact_range=(2, 4), power_range=(0, 3), eye_range=(0, 1), speed_range=(0, 4), splits_range=(-1, 2),
-            fielding_range=(-2, 1), potential_range=(0, 2), 
-            dev_ceiling_age=25, decline_age=31),
-        
-        Archetype("platoon", 
-            contact_range=(3, 4), power_range=(0, 4), eye_range=(0, 2), speed_range=(0, 5), splits_range=(-3, 3),
-            fielding_range=(-1, 2), potential_range=(1, 3), 
+
+        Archetype("50",  # MLB Average
+            contact_range=(2, 5), power_range=(0, 4), eye_range=(0, 1), speed_range=(0, 5), splits_range=(-1, 2),
+            fielding_range=(-1, 2), potential_range=(1, 3),
             dev_ceiling_age=25, decline_age=32),
-        
-        Archetype("regular starter", 
-            contact_range=(4, 6), power_range=(0, 5), eye_range=(0, 2), speed_range=(0, 6), splits_range=(0, 2),
-            fielding_range=(-1, 3), potential_range=(1, 6), 
+
+        Archetype("60",  # Above average - everyday player
+            contact_range=(4, 6), power_range=(1, 5), eye_range=(0, 2), speed_range=(1, 6), splits_range=(0, 2),
+            fielding_range=(-1, 3), potential_range=(1, 5),
             dev_ceiling_age=25, decline_age=33),
-        
-        Archetype("star", 
-            contact_range=(5, 7), power_range=(1, 7), eye_range=(1, 3), speed_range=(1, 7), splits_range=(1, 2),
-            fielding_range=(0, 3), potential_range=(2, 7), 
+
+        Archetype("70",  # Plus - All-Star caliber
+            contact_range=(5, 7), power_range=(2, 7), eye_range=(1, 3), speed_range=(2, 7), splits_range=(1, 2),
+            fielding_range=(0, 3), potential_range=(2, 7),
             dev_ceiling_age=25, decline_age=34),
-        
-        Archetype("5-tool", 
-            contact_range=(5, 8), power_range=(4, 8), eye_range=(2, 3), speed_range=(4, 8), splits_range=(1, 3), 
-            fielding_range=(1, 3), potential_range=(3, 8), 
+
+        Archetype("80",  # Elite - MVP caliber
+            contact_range=(6, 8), power_range=(4, 8), eye_range=(2, 3), speed_range=(4, 8), splits_range=(1, 3),
+            fielding_range=(1, 3), potential_range=(4, 8),
             dev_ceiling_age=25, decline_age=35)
     ]
 
@@ -734,132 +747,102 @@ class BatterProfile:
         splits_L = 0
         splits_R = 0
 
-        # Special case for platoon players
-        if self.archetype.name == "scrub":
-            if self.bats == "L":
-                splits_L = self.skewed_random(-3, -1, skew="low")  # Weaker against left-handed pitchers
-                splits_R = self.skewed_random(-2, 0, skew="high")  # Stronger against right-handed pitchers
-            elif self.bats == "R":
-                splits_R = self.skewed_random(-3, -1, skew="low")  # Weaker against right-handed pitchers
-                splits_L = self.skewed_random(-2, 0, skew="high")  # Stronger against left-handed pitchers
-            else:  # Switch hitters
-                splits_L = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. right-handed pitchers
+        # Generate splits based on 20-80 grade scale
+        # Low grades: weak splits, high grades: good splits
+        # Batters hit better vs opposite-handed pitchers
 
-        if self.archetype.name == "career minor leaguer":
+        if self.archetype.name == "20":  # Org filler - severe platoon splits
             if self.bats == "L":
-                splits_L = self.skewed_random(-3, 0, skew="low")  # Weaker against left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="high")  # Stronger against right-handed pitchers
+                splits_L = self.skewed_random(-3, -1, skew="low")
+                splits_R = self.skewed_random(-2, 0, skew="high")
             elif self.bats == "R":
-                splits_R = self.skewed_random(-3, 0, skew="low")  # Weaker against right-handed pitchers
-                splits_L = self.skewed_random(-2, 1, skew="high")  # Stronger against left-handed pitchers
+                splits_R = self.skewed_random(-3, -1, skew="low")
+                splits_L = self.skewed_random(-2, 0, skew="high")
             else:  # Switch hitters
-                splits_L = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. right-handed pitchers
+                splits_L = self.skewed_random(-2, 0, skew="neutral")
+                splits_R = self.skewed_random(-2, 0, skew="neutral")
 
-        if self.archetype.name == "september callup":
+        elif self.archetype.name == "30":  # Fringe prospect - notable platoon splits
             if self.bats == "L":
-                splits_L = self.skewed_random(-2, 0, skew="low")  # Weaker against left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="high")  # Stronger against right-handed pitchers
+                splits_L = self.skewed_random(-2, 0, skew="low")
+                splits_R = self.skewed_random(-1, 1, skew="high")
             elif self.bats == "R":
-                splits_R = self.skewed_random(-2, 0, skew="low")  # Weaker against right-handed pitchers
-                splits_L = self.skewed_random(-2, 1, skew="high")  # Stronger against left-handed pitchers
-            else:  # Switch hitters
-                splits_L = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. right-handed pitchers
+                splits_R = self.skewed_random(-2, 0, skew="low")
+                splits_L = self.skewed_random(-1, 1, skew="high")
+            else:
+                splits_L = self.skewed_random(-1, 1, skew="neutral")
+                splits_R = self.skewed_random(-1, 1, skew="neutral")
 
-        if self.archetype.name == "injury replacement":
+        elif self.archetype.name == "40":  # Replacement level - moderate platoon splits
             if self.bats == "L":
-                splits_L = self.skewed_random(-2, -1, skew="low")  # Weaker against left-handed pitchers
-                splits_R = self.skewed_random(-1, 2, skew="high")  # Stronger against right-handed pitchers
+                splits_L = self.skewed_random(-1, 1, skew="low")
+                splits_R = self.skewed_random(-1, 2, skew="high")
             elif self.bats == "R":
-                splits_R = self.skewed_random(-2, -1, skew="low")  # Weaker against right-handed pitchers
-                splits_L = self.skewed_random(-1, 2, skew="high")  # Stronger against left-handed pitchers
-            else:  # Switch hitters
-                splits_L = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. right-handed pitchers
+                splits_R = self.skewed_random(-1, 1, skew="low")
+                splits_L = self.skewed_random(-1, 2, skew="high")
+            else:
+                splits_L = self.skewed_random(-1, 1, skew="neutral")
+                splits_R = self.skewed_random(-1, 1, skew="neutral")
 
-        if self.archetype.name == "AAAA player":
+        elif self.archetype.name == "50":  # MLB average - slight platoon advantage
             if self.bats == "L":
-                splits_L = self.skewed_random(-1, 1, skew="low")  # Weaker against left-handed pitchers
-                splits_R = self.skewed_random(-1, 2, skew="high")  # Stronger against right-handed pitchers
+                splits_L = self.skewed_random(-1, 1, skew="neutral")
+                splits_R = self.skewed_random(0, 2, skew="high")
             elif self.bats == "R":
-                splits_R = self.skewed_random(-1, 1, skew="low")  # Weaker against right-handed pitchers
-                splits_L = self.skewed_random(-1, 2, skew="high")  # Stronger against left-handed pitchers
-            else:  # Switch hitters
-                splits_L = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. right-handed pitchers
+                splits_R = self.skewed_random(-1, 1, skew="neutral")
+                splits_L = self.skewed_random(0, 2, skew="high")
+            else:
+                splits_L = self.skewed_random(0, 1, skew="neutral")
+                splits_R = self.skewed_random(0, 1, skew="neutral")
 
-        if self.archetype.name == "backup":
+        elif self.archetype.name == "60":  # Above average - handles both sides
             if self.bats == "L":
-                splits_L = self.skewed_random(-1, 2, skew="low")  # Weaker against left-handed pitchers
-                splits_R = self.skewed_random(0, 2, skew="high")  # Stronger against right-handed pitchers
+                splits_L = self.skewed_random(0, 2, skew="low")
+                splits_R = self.skewed_random(0, 2, skew="high")
             elif self.bats == "R":
-                splits_R = self.skewed_random(-1, 2, skew="low")  # Weaker against right-handed pitchers
-                splits_L = self.skewed_random(0, 2, skew="high")  # Stronger against left-handed pitchers
-            else:  # Switch hitters
-                splits_L = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. right-handed pitchers
+                splits_R = self.skewed_random(0, 2, skew="low")
+                splits_L = self.skewed_random(0, 2, skew="high")
+            else:
+                splits_L = self.skewed_random(0, 2, skew="neutral")
+                splits_R = self.skewed_random(0, 2, skew="neutral")
 
-        if self.archetype.name == "platoon":
+        elif self.archetype.name == "70":  # All-Star - strong vs both
             if self.bats == "L":
-                splits_L = self.skewed_random(-3, 0, skew="low")  # Weaker against left-handed pitchers
-                splits_R = self.skewed_random(1, 3, skew="high")  # Stronger against right-handed pitchers
+                splits_L = self.skewed_random(0, 2, skew="neutral")
+                splits_R = self.skewed_random(1, 3, skew="high")
             elif self.bats == "R":
-                splits_R = self.skewed_random(-3, 0, skew="low")  # Weaker against right-handed pitchers
-                splits_L = self.skewed_random(1, 3, skew="high")  # Stronger against left-handed pitchers
-            else:  # Switch hitters
-                splits_L = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. right-handed pitchers
+                splits_R = self.skewed_random(0, 2, skew="neutral")
+                splits_L = self.skewed_random(1, 3, skew="high")
+            else:
+                splits_L = self.skewed_random(1, 2, skew="neutral")
+                splits_R = self.skewed_random(1, 2, skew="neutral")
 
-        if self.archetype.name == "regular starter":
+        elif self.archetype.name == "80":  # Elite/MVP - excellent vs both
             if self.bats == "L":
-                splits_L = self.skewed_random(0, 2, skew="low")  # Weaker against left-handed pitchers
-                splits_R = self.skewed_random(0, 3, skew="high")  # Stronger against right-handed pitchers
+                splits_L = self.skewed_random(1, 3, skew="neutral")
+                splits_R = self.skewed_random(1, 3, skew="high")
             elif self.bats == "R":
-                splits_R = self.skewed_random(0, 2, skew="low")  # Weaker against right-handed pitchers
-                splits_L = self.skewed_random(0, 3, skew="high")  # Stronger against left-handed pitchers
-            else:  # Switch hitters
-                splits_L = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. right-handed pitchers
-
-        if self.archetype.name == "star":
-            if self.bats == "L":
-                splits_L = self.skewed_random(1, 2, skew="low")  # Weaker against left-handed pitchers
-                splits_R = self.skewed_random(1, 3, skew="high")  # Stronger against right-handed pitchers
-            elif self.bats == "R":
-                splits_R = self.skewed_random(1, 2, skew="low")  # Weaker against right-handed pitchers
-                splits_L = self.skewed_random(1, 3, skew="high")  # Stronger against left-handed pitchers
-            else:  # Switch hitters
-                splits_L = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. right-handed pitchers
-
-        if self.archetype.name == "5-tool":
-            if self.bats == "L":
-                splits_L = self.skewed_random(1, 3, skew="low")  # Weaker against left-handed pitchers
-                splits_R = self.skewed_random(1, 3, skew="high")  # Stronger against right-handed pitchers
-            elif self.bats == "R":
-                splits_R = self.skewed_random(1, 3, skew="low")  # Weaker against right-handed pitchers
-                splits_L = self.skewed_random(1, 3, skew="high")  # Stronger against left-handed pitchers
-            else:  # Switch hitters
-                splits_L = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. left-handed pitchers
-                splits_R = self.skewed_random(-2, 1, skew="neutral")  # Balanced vs. right-handed pitchers
+                splits_R = self.skewed_random(1, 3, skew="neutral")
+                splits_L = self.skewed_random(1, 3, skew="high")
+            else:
+                splits_L = self.skewed_random(1, 3, skew="neutral")
+                splits_R = self.skewed_random(1, 3, skew="neutral")
 
         return splits_L, splits_R
 
     def generate_attribute(self, range_tuple, attribute_name, age_affected=True):
         """Generate a rating based on a given range, skewed by archetype quality."""
         floor, ceiling = range_tuple
-        
-        # Skewed distribution depending on archetype quality
-        if self.archetype.name in ["star", "5-tool"]:
-            # High-quality archetypes skew towards the ceiling
+
+        # Skewed distribution depending on archetype quality (20-80 scale)
+        if self.archetype.name in ["70", "80"]:
+            # Elite/All-Star archetypes skew towards the ceiling
             rating = self.skewed_random(floor, ceiling, skew="high")
-        elif self.archetype.name in ["scrub", "career minor leaguer", "september callup", "injury replacement"]:
-            # Low-quality archetypes skew towards the floor
+        elif self.archetype.name in ["20", "30"]:
+            # Poor archetypes skew towards the floor
             rating = self.skewed_random(floor, ceiling, skew="low")
         else:
-            # Neutral or moderate archetypes have a balanced distribution
+            # Average archetypes (40, 50, 60) have a balanced distribution
             rating = np.random.randint(floor, ceiling + 1)
 
         # Clamp the values within the floor/ceiling bounds
@@ -991,107 +974,79 @@ class PitcherProfile:
             firstname = "xx"
         return f"{surname}{firstname}{PitcherProfile._pitcher_counter:02d}"
 
+    # 20-80 scale starter archetypes (7 grades)
     starter_archetypes = [
-        Archetype("journeyman", 
+        Archetype("20",  # Well below average - org filler
             start_value_range=(0.5, 1.0), endurance_range=(0.5, 1.0), rest_range=(7, 8), splits_range=(-3, -1),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(6, 6), 
+            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(6, 6),
             fatigue_range=(+5, +5), potential_range=(0, 0), dev_ceiling_age=21, decline_age=28),
 
-        Archetype("fringe starter", 
+        Archetype("30",  # Below average - fringe prospect
             start_value_range=(0.5, 1.5), endurance_range=(0.5, 1.5), rest_range=(6, 8), splits_range=(-3, 0),
-            cg_rating_range=(665, 666), sho_rating_range=(666, 666), relief_value_range=(6, 6), 
-            fatigue_range=(+5, +5), potential_range=(0, 0), dev_ceiling_age=22, decline_age=29),
+            cg_rating_range=(665, 666), sho_rating_range=(666, 666), relief_value_range=(6, 6),
+            fatigue_range=(+5, +5), potential_range=(0, 1), dev_ceiling_age=22, decline_age=29),
 
-        Archetype("late bloomer", 
-            start_value_range=(1.0, 1.5), endurance_range=(1.0, 1.5), rest_range=(6, 8), splits_range=(-2, 0),
-            cg_rating_range=(664, 666), sho_rating_range=(666, 666), relief_value_range=(6, 6), 
-            fatigue_range=(+5, +5), potential_range=(0, 1), dev_ceiling_age=23, decline_age=29),
-
-        Archetype("spot starter", 
-            start_value_range=(1.0, 2.0), endurance_range=(1.0, 2.0), rest_range=(5, 8), splits_range=(-2, 1),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(6, 6), 
-            fatigue_range=(+5, +5), potential_range=(0, 1), dev_ceiling_age=23, decline_age=29),
-
-        Archetype("quad-a arm", 
-            start_value_range=(1.0, 2.5), endurance_range=(1.0, 2.5), rest_range=(5, 7), splits_range=(-1, 0),
-            cg_rating_range=(665, 665), sho_rating_range=(665, 665), relief_value_range=(6, 6), 
+        Archetype("40",  # Fringe average - replacement level
+            start_value_range=(1.0, 2.5), endurance_range=(1.0, 2.5), rest_range=(5, 7), splits_range=(-2, 1),
+            cg_rating_range=(665, 666), sho_rating_range=(665, 666), relief_value_range=(6, 5),
             fatigue_range=(+5, +5), potential_range=(0, 2), dev_ceiling_age=24, decline_age=30),
 
-        Archetype("swingman", 
-            start_value_range=(1.5, 3.0), endurance_range=(1.5, 3.0), rest_range=(5, 6), splits_range=(-1, 1),
-            cg_rating_range=(665, 665), sho_rating_range=(665, 665), relief_value_range=(5, 5), 
-            fatigue_range=(4, 2), potential_range=(0, 2), dev_ceiling_age=25, decline_age=31),
-
-        Archetype("back of rotation", 
-            start_value_range=(2.0, 3.0), endurance_range=(2.0, 3.5), rest_range=(4, 6), splits_range=(-1, 2),
-            cg_rating_range=(661, 666), sho_rating_range=(661, 661), relief_value_range=(5, 5), 
+        Archetype("50",  # MLB Average - #4/5 starter
+            start_value_range=(2.0, 3.5), endurance_range=(2.0, 4.0), rest_range=(4, 6), splits_range=(-1, 2),
+            cg_rating_range=(661, 666), sho_rating_range=(661, 666), relief_value_range=(5, 5),
             fatigue_range=(+5, +5), potential_range=(1, 3), dev_ceiling_age=25, decline_age=32),
 
-        Archetype("regular starter", 
-            start_value_range=(2.5, 4.0), endurance_range=(2.5, 5.5), rest_range=(4, 5), splits_range=(0, 2),
-            cg_rating_range=(661, 666), sho_rating_range=(656, 666), relief_value_range=(5, 5), 
+        Archetype("60",  # Above average - #3 starter
+            start_value_range=(2.5, 4.5), endurance_range=(2.5, 5.5), rest_range=(4, 5), splits_range=(0, 2),
+            cg_rating_range=(651, 666), sho_rating_range=(656, 666), relief_value_range=(5, 5),
             fatigue_range=(+5, +5), potential_range=(1, 5), dev_ceiling_age=25, decline_age=34),
 
-        Archetype("top of rotation", 
-            start_value_range=(3.0, 5.5), endurance_range=(3.5, 6.5), rest_range=(4, 5), splits_range=(1, 2),
-            cg_rating_range=(641, 666), sho_rating_range=(651, 666), relief_value_range=(5, 5), 
+        Archetype("70",  # Plus - All-Star / #2 starter
+            start_value_range=(3.5, 5.5), endurance_range=(3.5, 6.5), rest_range=(4, 5), splits_range=(1, 2),
+            cg_rating_range=(641, 666), sho_rating_range=(651, 666), relief_value_range=(5, 4),
             fatigue_range=(+5, +5), potential_range=(3, 7), dev_ceiling_age=25, decline_age=34),
 
-        Archetype("ace", 
+        Archetype("80",  # Elite - Cy Young caliber ace
             start_value_range=(5.0, 7.0), endurance_range=(4.0, 8.0), rest_range=(4, 4), splits_range=(1, 3),
-            cg_rating_range=(611, 666), sho_rating_range=(611, 666), relief_value_range=(4, 4), 
+            cg_rating_range=(611, 666), sho_rating_range=(611, 666), relief_value_range=(4, 4),
             fatigue_range=(+4, +4), potential_range=(4, 8), dev_ceiling_age=25, decline_age=35)
     ]
 
+    # 20-80 scale reliever archetypes (7 grades)
     reliever_archetypes = [
-        Archetype("filler arm", 
+        Archetype("20",  # Well below average - org filler
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(-3, -1),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(7, 6), 
+            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(7, 6),
             fatigue_range=(4, 4), potential_range=(0, 0), dev_ceiling_age=21, decline_age=28),
 
-        Archetype("taxi squad reliever", 
-            start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(7, 8), splits_range=(-2, -1),
-            cg_rating_range=(665, 666), sho_rating_range=(666, 666), relief_value_range=(7, 5), 
-            fatigue_range=(4, 4), potential_range=(0, 0), dev_ceiling_age=22, decline_age=29),
-
-        Archetype("roster expansion reliever", 
+        Archetype("30",  # Below average - fringe reliever
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(7, 8), splits_range=(-2, 0),
-            cg_rating_range=(664, 666), sho_rating_range=(666, 666), relief_value_range=(6, 5), 
-            fatigue_range=(4, 4), potential_range=(0, 1), dev_ceiling_age=23, decline_age=29),
+            cg_rating_range=(665, 666), sho_rating_range=(666, 666), relief_value_range=(7, 5),
+            fatigue_range=(4, 4), potential_range=(0, 1), dev_ceiling_age=22, decline_age=29),
 
-        Archetype("bullpen patch", 
-            start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(-1, 0),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(6, 4), 
-            fatigue_range=(4, 3), potential_range=(0, 1), dev_ceiling_age=23, decline_age=29),
-
-        Archetype("perpetual callup", 
+        Archetype("40",  # Fringe average - replacement level
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(-1, 1),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(5, 4), 
-            fatigue_range=(4, 2), potential_range=(0, 2), dev_ceiling_age=24, decline_age=30),
+            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(6, 4),
+            fatigue_range=(4, 3), potential_range=(0, 2), dev_ceiling_age=24, decline_age=30),
 
-        Archetype("specialist", 
-            start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(7, 7), splits_range=(-3, 3),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(5, 3), 
-            fatigue_range=(4, 3), potential_range=(0, 3), dev_ceiling_age=25, decline_age=30),
-
-        Archetype("long-relief", 
+        Archetype("50",  # MLB Average - middle reliever / long relief
             start_value_range=(1.0, 1.5), endurance_range=(0.5, 1.0), rest_range=(5, 7), splits_range=(0, 1),
-            cg_rating_range=(665, 666), sho_rating_range=(665, 666), relief_value_range=(4, 2), 
-            fatigue_range=(2, 1), potential_range=(1, 3), dev_ceiling_age=25, decline_age=31),
+            cg_rating_range=(665, 666), sho_rating_range=(665, 666), relief_value_range=(4, 2),
+            fatigue_range=(3, 2), potential_range=(1, 3), dev_ceiling_age=25, decline_age=31),
 
-        Archetype("low-leverage", 
+        Archetype("60",  # Above average - 6th/7th inning guy
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(0, 2),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(3, 0), 
+            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(3, 0),
             fatigue_range=(3, 1), potential_range=(1, 5), dev_ceiling_age=25, decline_age=32),
 
-        Archetype("high-leverage", 
+        Archetype("70",  # Plus - setup man / high-leverage
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(1, 2),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(0, -3), 
+            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(0, -3),
             fatigue_range=(2, 1), potential_range=(2, 7), dev_ceiling_age=25, decline_age=34),
 
-        Archetype("closer", 
+        Archetype("80",  # Elite - dominant closer
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(1, 3),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(-4, -5), 
+            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(-4, -5),
             fatigue_range=(1, 1), potential_range=(3, 8), dev_ceiling_age=25, decline_age=35)
     ]
 
@@ -1178,9 +1133,9 @@ class PitcherProfile:
         splits_L = 0
         splits_R = 0
 
-        # STARTING PITCHERS
+        # STARTING PITCHERS - Using 20-80 scouting scale
 
-        if self.archetype.name == "journeyman":
+        if self.archetype.name == "20" and self.type == "Starter":  # Org filler starter - severe platoon splits
             if self.throws == "L":
                 splits_L = self.skewed_random(-3, -1, skew="low")  # Stronger splits against same-handed hitters
                 splits_R = self.skewed_random(-3, -2, skew="high")  # Weaker splits against opposite-handed hitters
@@ -1188,7 +1143,7 @@ class PitcherProfile:
                 splits_R = self.skewed_random(-3, -1, skew="low")  # Stronger splits against same-handed hitters
                 splits_L = self.skewed_random(-3, -2, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "fringe starter":
+        elif self.archetype.name == "30" and self.type == "Starter":  # Fringe starter - significant platoon weakness
             if self.throws == "L":
                 splits_L = self.skewed_random(-3, 0, skew="low")  # Stronger splits against same-handed hitters
                 splits_R = self.skewed_random(-3, -1, skew="high")  # Weaker against opposite-handed hitters
@@ -1196,7 +1151,7 @@ class PitcherProfile:
                 splits_R = self.skewed_random(-3, 0, skew="low")  # Stronger splits against same-handed hitters
                 splits_L = self.skewed_random(-3, -1, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "late bloomer":
+        elif self.archetype.name == "40" and self.type == "Starter":  # Below average starter - moderate platoon splits
             if self.throws == "L":
                 splits_L = self.skewed_random(-2, 0, skew="low")  # Stronger splits against same-handed hitters
                 splits_R = self.skewed_random(-2, -1, skew="high")  # Weaker against opposite-handed hitters
@@ -1204,39 +1159,15 @@ class PitcherProfile:
                 splits_R = self.skewed_random(-2, 0, skew="low")  # Stronger splits against same-handed hitters
                 splits_L = self.skewed_random(-2, -1, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "spot starter":
-            if self.throws == "L":
-                splits_L = self.skewed_random(-2, 1, skew="low")  # Stronger splits against same-handed hitters
-                splits_R = self.skewed_random(-2, 0, skew="high")  # Weaker against opposite-handed hitters
-            elif self.throws == "R":
-                splits_R = self.skewed_random(-2, 1, skew="low")  # Stronger splits against same-handed hitters
-                splits_L = self.skewed_random(-2, 0, skew="high")  # Weaker against opposite-handed hitters
-
-        if self.archetype.name == "quad-a arm":
-            if self.throws == "L":
-                splits_L = self.skewed_random(-1, 0, skew="low")  # Stronger splits against same-handed hitters
-                splits_R = self.skewed_random(-2, 0, skew="high")  # Weaker against opposite-handed hitters
-            elif self.throws == "R":
-                splits_R = self.skewed_random(-1, 0, skew="low")  # Stronger splits against same-handed hitters
-                splits_L = self.skewed_random(-2, 0, skew="high")  # Weaker against opposite-handed hitters
-
-        if self.archetype.name == "swingman":
+        elif self.archetype.name == "50" and self.type == "Starter":  # Average starter - balanced splits
             if self.throws == "L":
                 splits_L = self.skewed_random(-1, 1, skew="low")  # Stronger splits against same-handed hitters
-                splits_R = self.skewed_random(-2, 0, skew="high")  # Weaker against opposite-handed hitters
+                splits_R = self.skewed_random(-1, 0, skew="high")  # Weaker against opposite-handed hitters
             elif self.throws == "R":
                 splits_R = self.skewed_random(-1, 1, skew="low")  # Stronger splits against same-handed hitters
-                splits_L = self.skewed_random(-2, 0, skew="high")  # Weaker against opposite-handed hitters
+                splits_L = self.skewed_random(-1, 0, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "back of rotation":
-            if self.throws == "L":
-                splits_L = self.skewed_random(-1, 2, skew="low")  # Stronger splits against same-handed hitters
-                splits_R = self.skewed_random(-1, 1, skew="high")  # Weaker against opposite-handed hitters
-            elif self.throws == "R":
-                splits_R = self.skewed_random(-1, 2, skew="low")  # Stronger splits against same-handed hitters
-                splits_L = self.skewed_random(-1, 1, skew="high")  # Weaker against opposite-handed hitters
-
-        if self.archetype.name == "regular starter":
+        elif self.archetype.name == "60" and self.type == "Starter":  # Above average starter - slight platoon advantage
             if self.throws == "L":
                 splits_L = self.skewed_random(0, 2, skew="low")  # Stronger splits against same-handed hitters
                 splits_R = self.skewed_random(0, 1, skew="high")  # Weaker against opposite-handed hitters
@@ -1244,7 +1175,7 @@ class PitcherProfile:
                 splits_R = self.skewed_random(0, 2, skew="low")  # Stronger splits against same-handed hitters
                 splits_L = self.skewed_random(0, 1, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "top of rotation":
+        elif self.archetype.name == "70" and self.type == "Starter":  # All-Star starter - solid platoon advantage
             if self.throws == "L":
                 splits_L = self.skewed_random(1, 2, skew="low")  # Stronger splits against same-handed hitters
                 splits_R = self.skewed_random(0, 2, skew="high")  # Weaker against opposite-handed hitters
@@ -1252,7 +1183,7 @@ class PitcherProfile:
                 splits_R = self.skewed_random(1, 2, skew="low")  # Stronger splits against same-handed hitters
                 splits_L = self.skewed_random(0, 2, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "ace":
+        elif self.archetype.name == "80" and self.type == "Starter":  # Ace/Elite starter - strong platoon advantage
             if self.throws == "L":
                 splits_L = self.skewed_random(1, 3, skew="low")  # Stronger splits against same-handed hitters
                 splits_R = self.skewed_random(1, 2, skew="high")  # Weaker against opposite-handed hitters
@@ -1260,9 +1191,9 @@ class PitcherProfile:
                 splits_R = self.skewed_random(1, 3, skew="low")  # Stronger splits against same-handed hitters
                 splits_L = self.skewed_random(1, 2, skew="high")  # Weaker against opposite-handed hitters
 
-        # RELIEF PITCHERS
+        # RELIEF PITCHERS - Using 20-80 scouting scale
 
-        if self.archetype.name == "filler arm":
+        if self.archetype.name == "20" and self.type == "Reliever":  # Org filler reliever - severe platoon splits
             if self.throws == "L":
                 splits_L = self.skewed_random(-3, -1, skew="low")  # Strong splits against same-handed hitters
                 splits_R = self.skewed_random(-3, -2, skew="high")  # Weaker against opposite-handed hitters
@@ -1270,7 +1201,7 @@ class PitcherProfile:
                 splits_R = self.skewed_random(-3, -1, skew="low")  # Strong splits against same-handed hitters
                 splits_L = self.skewed_random(-3, -2, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "taxi squad reliever":
+        elif self.archetype.name == "30" and self.type == "Reliever":  # Fringe reliever - significant platoon weakness
             if self.throws == "L":
                 splits_L = self.skewed_random(-2, -1, skew="low")  # Strong splits against same-handed hitters
                 splits_R = self.skewed_random(-3, -1, skew="high")  # Weaker against opposite-handed hitters
@@ -1278,7 +1209,7 @@ class PitcherProfile:
                 splits_R = self.skewed_random(-2, -1, skew="low")  # Strong splits against same-handed hitters
                 splits_L = self.skewed_random(-3, -1, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "roster expansion reliever":
+        elif self.archetype.name == "40" and self.type == "Reliever":  # Below average reliever - moderate platoon splits
             if self.throws == "L":
                 splits_L = self.skewed_random(-2, 0, skew="low")  # Strong splits against same-handed hitters
                 splits_R = self.skewed_random(-2, -1, skew="high")  # Weaker against opposite-handed hitters
@@ -1286,39 +1217,15 @@ class PitcherProfile:
                 splits_R = self.skewed_random(-2, 0, skew="low")  # Strong splits against same-handed hitters
                 splits_L = self.skewed_random(-2, -1, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "bullpen patch":
-            if self.throws == "L":
-                splits_L = self.skewed_random(-1, 0, skew="low")  # Strong splits against same-handed hitters
-                splits_R = self.skewed_random(-2, 0, skew="high")  # Weaker against opposite-handed hitters
-            elif self.throws == "R":
-                splits_R = self.skewed_random(-1, 0, skew="low")  # Strong splits against same-handed hitters
-                splits_L = self.skewed_random(-2, 0, skew="high")  # Weaker against opposite-handed hitters
-
-        if self.archetype.name == "perpetual callup":
+        elif self.archetype.name == "50" and self.type == "Reliever":  # Average reliever - balanced splits
             if self.throws == "L":
                 splits_L = self.skewed_random(-1, 1, skew="low")  # Strong splits against same-handed hitters
-                splits_R = self.skewed_random(-2, 0, skew="high")  # Weaker against opposite-handed hitters
+                splits_R = self.skewed_random(-1, 0, skew="high")  # Weaker against opposite-handed hitters
             elif self.throws == "R":
                 splits_R = self.skewed_random(-1, 1, skew="low")  # Strong splits against same-handed hitters
-                splits_L = self.skewed_random(-2, 0, skew="high")  # Weaker against opposite-handed hitters
+                splits_L = self.skewed_random(-1, 0, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "specialist":
-            if self.throws == "L":
-                splits_L = self.skewed_random(2, 3, skew="low")  # Stronger splits against same-handed hitters
-                splits_R = self.skewed_random(-3, -2, skew="high")  # Weaker against opposite-handed hitters
-            elif self.throws == "R":
-                splits_R = self.skewed_random(2, 3, skew="low")  # Stronger splits against same-handed hitters
-                splits_L = self.skewed_random(-3, -2, skew="high")  # Weaker against opposite-handed hitters
-
-        if self.archetype.name == "long-relief":
-            if self.throws == "L":
-                splits_L = self.skewed_random(0, 1, skew="low")  # Strong splits against same-handed hitters
-                splits_R = self.skewed_random(-1, 1, skew="high")  # Weaker against opposite-handed hitters
-            elif self.throws == "R":
-                splits_R = self.skewed_random(0, 1, skew="low")  # Strong splits against same-handed hitters
-                splits_L = self.skewed_random(-1, 1, skew="high")  # Weaker against opposite-handed hitters
-
-        if self.archetype.name == "low-leverage":
+        elif self.archetype.name == "60" and self.type == "Reliever":  # Above average reliever - slight platoon advantage
             if self.throws == "L":
                 splits_L = self.skewed_random(0, 2, skew="low")  # Strong splits against same-handed hitters
                 splits_R = self.skewed_random(0, 1, skew="high")  # Weaker against opposite-handed hitters
@@ -1326,7 +1233,7 @@ class PitcherProfile:
                 splits_R = self.skewed_random(0, 2, skew="low")  # Strong splits against same-handed hitters
                 splits_L = self.skewed_random(0, 1, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "high-leverage":
+        elif self.archetype.name == "70" and self.type == "Reliever":  # High-leverage reliever - solid platoon advantage
             if self.throws == "L":
                 splits_L = self.skewed_random(1, 2, skew="low")  # Strong splits against same-handed hitters
                 splits_R = self.skewed_random(0, 2, skew="high")  # Weaker against opposite-handed hitters
@@ -1334,7 +1241,7 @@ class PitcherProfile:
                 splits_R = self.skewed_random(1, 2, skew="low")  # Strong splits against same-handed hitters
                 splits_L = self.skewed_random(0, 2, skew="high")  # Weaker against opposite-handed hitters
 
-        if self.archetype.name == "closer":
+        elif self.archetype.name == "80" and self.type == "Reliever":  # Elite closer - strong platoon advantage
             if self.throws == "L":
                 splits_L = self.skewed_random(1, 3, skew="low")  # Strong splits against same-handed hitters
                 splits_R = self.skewed_random(0, 3, skew="high")  # Weaker against opposite-handed hitters
@@ -1347,25 +1254,25 @@ class PitcherProfile:
     def generate_attribute(self, range_tuple, attribute_name, age_affected=True, reverse=False):
         """Generate a rating based on a given range, with support for reversed scales."""
         floor, ceiling = range_tuple
-        
+
         # Handle reversed ranges where lower values are better
         if reverse:
-            # Skew distribution depending on archetype quality, but in reversed order
-            if self.archetype.name in ["ace", "top of rotation", "closer", "high-leverage"]:
+            # Skew distribution depending on archetype quality (20-80 scale), but in reversed order
+            if self.archetype.name in ["70", "80"]:  # Elite grades - skew toward better (lower) values
                 rating = self.skewed_random(ceiling, floor, skew="low")  # Reversed, lower is better
-            elif self.archetype.name in ["journeyman", "fringe starter", "filler arm", "taxi squad reliever"]:
+            elif self.archetype.name in ["20", "30"]:  # Poor grades - skew toward worse (higher) values
                 rating = self.skewed_random(ceiling, floor, skew="high")  # Reversed, lower is better
-            else:
+            else:  # 40, 50, 60 - average grades
                 rating = np.random.randint(ceiling, floor + 1)  # Generate within reversed range
         else:
-            # Skew distribution for normal ranges
-            if self.archetype.name in ["ace", "top of rotation", "closer", "high-leverage"]:
+            # Skew distribution for normal ranges (20-80 scale)
+            if self.archetype.name in ["70", "80"]:  # Elite grades - skew toward higher (better) values
                 rating = self.skewed_random(floor, ceiling, skew="high")
-            elif self.archetype.name in ["journeyman", "fringe starter", "filler arm", "taxi squad reliever"]:
+            elif self.archetype.name in ["20", "30"]:  # Poor grades - skew toward lower (worse) values
                 rating = self.skewed_random(floor, ceiling, skew="low")
-            else:
+            else:  # 40, 50, 60 - average grades
                 rating = np.random.randint(floor, ceiling + 1)
-        
+
         # Clamp the values within the floor/ceiling bounds
         return np.clip(rating, min(floor, ceiling), max(floor, ceiling))
 
@@ -1397,9 +1304,9 @@ class PitcherProfile:
         dev_diff = self.archetype.dev_ceiling_age - self.bio['age']
         decline_diff = self.bio['age'] - self.archetype.decline_age
 
-        # List of top and second-tier archetypes
-        top_tier_archetypes = ["ace", "closer"]
-        second_tier_archetypes = ["top of rotation", "high-leverage"]
+        # List of top and second-tier archetypes (20-80 scale)
+        top_tier_archetypes = ["80"]  # Elite/MVP caliber
+        second_tier_archetypes = ["70"]  # All-Star caliber
 
         # Determine penalty adjustments based on archetype
         if self.archetype.name in top_tier_archetypes:
@@ -1720,6 +1627,16 @@ class Team:
         self.ballpark = self.generate_ballpark()
         self.league_name = league_name
         self.division_name = division_name
+
+        # Team balance constraints - cap elite players to prevent super-teams
+        # Allows for occasional dominators but prevents stacking
+        self.grade_caps = {
+            '80': 1,   # Max 1 elite/MVP caliber player per team
+            '70': 3,   # Max 3 All-Star caliber players
+            '60': 6,   # Max 6 above-average players
+        }
+        self.grade_counts = {'80': 0, '70': 0, '60': 0}  # Track players per grade
+
         self.roster = self.generate_roster()  # Generate roster during team creation
         self.manager = ManagerProfile()  # Generate manager
         self.gm = GMProfile()  # Generate GM
@@ -1946,35 +1863,30 @@ class Team:
         """Generate a minor league player for the farm system."""
         pass
 
-    # Utility function to map grade_prob to the actual archetype
-    def map_grade_prob_to_archetype(self, grade_prob, player_type):
-        """Map gradeX_prob to the corresponding archetype based on player type (batter, starter, reliever)."""
-        batter_archetypes = {
-            'grade1_prob': 'scrub', 'grade2_prob': 'career minor leaguer', 'grade3_prob': 'september callup',
-            'grade4_prob': 'injury replacement', 'grade5_prob': 'AAAA player', 'grade6_prob': 'backup',
-            'grade7_prob': 'platoon', 'grade8_prob': 'regular starter', 'grade9_prob': 'star', 'grade10_prob': '5-tool'
+    # Utility function to map 20-80 grade probability key to archetype name
+    def map_grade_to_archetype(self, grade_prob):
+        """Convert grade probability key (e.g., '20_prob') to archetype name (e.g., '20').
+
+        20-80 Scale (MLB standard):
+        - 20: Well below average (org filler)
+        - 30: Below average (fringe prospect)
+        - 40: Fringe average / replacement level
+        - 50: MLB Average
+        - 60: Above average
+        - 70: Plus / All-Star caliber
+        - 80: Elite / MVP caliber
+        """
+        # Extract grade number from probability key (e.g., '20_prob' -> '20')
+        grade_map = {
+            '20_prob': '20',
+            '30_prob': '30',
+            '40_prob': '40',
+            '50_prob': '50',
+            '60_prob': '60',
+            '70_prob': '70',
+            '80_prob': '80'
         }
-        
-        starter_archetypes = {
-            'grade1_prob': 'journeyman', 'grade2_prob': 'fringe starter', 'grade3_prob': 'late bloomer',
-            'grade4_prob': 'spot starter', 'grade5_prob': 'quad-a arm', 'grade6_prob': 'swingman',
-            'grade7_prob': 'back of rotation', 'grade8_prob': 'regular starter', 'grade9_prob': 'top of rotation', 'grade10_prob': 'ace'
-        }
-        
-        reliever_archetypes = {
-            'grade1_prob': 'filler arm', 'grade2_prob': 'taxi squad reliever', 'grade3_prob': 'roster expansion reliever',
-            'grade4_prob': 'bullpen patch', 'grade5_prob': 'perpetual callup', 'grade6_prob': 'specialist',
-            'grade7_prob': 'long-relief', 'grade8_prob': 'low-leverage', 'grade9_prob': 'high-leverage', 'grade10_prob': 'closer'
-        }
-        
-        if player_type == 'batter':
-            return batter_archetypes[grade_prob]
-        elif player_type == 'starter':
-            return starter_archetypes[grade_prob]
-        elif player_type == 'reliever':
-            return reliever_archetypes[grade_prob]
-        else:
-            raise ValueError("Invalid player type for archetype mapping.")
+        return grade_map.get(grade_prob, '50')  # Default to average if unknown
 
     def create_player(self, position):
         logger.debug(f"LINE 1338 - Creating player for position: {position}")
@@ -1998,25 +1910,45 @@ class Team:
         rand_prob = random.random()
         logger.debug(f"LINE 1357 - Random Probability for {player_profile.bio['name']}: {rand_prob}")
 
-        # Map to the correct archetype
+        # Map to the correct archetype using 20-80 scale
+        # school_probs keys are: 20_prob, 30_prob, 40_prob, 50_prob, 60_prob, 70_prob, 80_prob
+        grade = '80_prob'  # Default to highest if no threshold matched (shouldn't happen)
         for col, threshold in school_probs.items():
             if rand_prob <= threshold:
-                grade_prob = col
-                logger.debug(f"LINE 1363 - {player_profile.bio['name']} assigned grade_prob: {grade_prob} for archetype mapping.")
+                grade = col
+                logger.debug(f"LINE 1363 - {player_profile.bio['name']} assigned grade: {grade} (20-80 scale) for archetype mapping.")
                 break
+
+        # Determine player type and map to archetype (all types use same grade names: 20, 30, 40, 50, 60, 70, 80)
+        archetype_name = self.map_grade_to_archetype(grade)
+
+        # Apply team balance constraints - knock down grades if team has hit cap
+        original_grade = archetype_name
+        grade_order = ['80', '70', '60', '50', '40', '30', '20']  # Knock down order
+
+        while archetype_name in self.grade_caps:
+            if self.grade_counts.get(archetype_name, 0) >= self.grade_caps[archetype_name]:
+                # Team has hit cap for this grade, knock down one tier
+                current_idx = grade_order.index(archetype_name)
+                if current_idx < len(grade_order) - 1:
+                    archetype_name = grade_order[current_idx + 1]
+                    logger.debug(f"LINE 1370 - {player_profile.bio['name']} knocked down from {original_grade} to {archetype_name} (team cap reached)")
+                else:
+                    break  # Can't knock down further
             else:
-                grade_prob = 'grade1_prob'
-                logger.debug(f"LINE 1367 - {player_profile.bio['name']} assigned grade_prob: {grade_prob} for archetype mapping.")
-            
-        # Determine player type and map to archetype
+                break  # Under cap, keep this grade
+
+        # Track the final grade (only for capped grades)
+        if archetype_name in self.grade_counts:
+            self.grade_counts[archetype_name] += 1
+            logger.debug(f"LINE 1378 - Team grade counts: {self.grade_counts}")
+
         if position == 'SP':  # Starter
-            archetype_name = self.map_grade_prob_to_archetype(grade_prob, 'starter')
             logger.debug(f"LINE 1373 - {player_profile.bio['name']} (Starter) Archetype: {archetype_name}")
             archetype = next(a for a in PitcherProfile.starter_archetypes if a.name == archetype_name)
             player_profile.profile = PitcherProfile(player_profile.bio, archetype)
             player_profile.profile.type = 'Starter'
         elif position == 'RP':  # Reliever
-            archetype_name = self.map_grade_prob_to_archetype(grade_prob, 'reliever')
             logger.debug(f"LINE 1379 - {player_profile.bio['name']} (Reliever) Archetype: {archetype_name}")
             archetype = next(a for a in PitcherProfile.reliever_archetypes if a.name == archetype_name)
             player_profile.profile = PitcherProfile(player_profile.bio, archetype)
@@ -2027,7 +1959,6 @@ class Team:
                 position = random.choice(valid_batter_positions)
             player_profile.bio['position'] = position
 
-            archetype_name = self.map_grade_prob_to_archetype(grade_prob, 'batter')
             logger.debug(f"LINE 1390 - {player_profile.bio['name']} (Batter) Archetype: {archetype_name}")
             archetype = next(a for a in BatterProfile.batter_archetypes if a.name == archetype_name)
             player_profile.profile = BatterProfile(player_profile.bio, archetype)
@@ -2142,61 +2073,24 @@ class LineupManager:
 
     def get_archetype_priority(self, player):
         """Get the archetype priority for a player. Higher numbers mean higher priority."""
-        
-        # Define the archetype priority for batters
-        batter_priority = {
-            'scrub': 1,
-            'career minor leaguer': 2,
-            'september callup': 3,
-            'injury replacement': 4,
-            'aaaa player': 5,
-            'backup': 6,
-            'platoon': 7,
-            'regular starter': 8,
-            'star': 9,
-            '5-tool': 10
+
+        # Define the archetype priority using 20-80 scouting scale
+        # All player types (batters, starters, relievers) use the same scale
+        grade_priority = {
+            '20': 1,  # Org filler
+            '30': 2,  # Fringe
+            '40': 3,  # Below average
+            '50': 4,  # Average
+            '60': 5,  # Above average
+            '70': 6,  # All-Star caliber
+            '80': 7   # Elite/MVP caliber
         }
 
-        # Define the archetype priority for starters
-        starter_priority = {
-            'journeyman': 1,
-            'fringe starter': 2,
-            'late bloomer': 3,
-            'spot starter': 4,
-            'quad-a arm': 5,
-            'swingman': 6,
-            'back of rotation': 7,
-            'regular starter': 8,
-            'top of rotation': 9,
-            'ace': 10
-        }
+        # Get the archetype (grade) from the player
+        archetype = player.get('archetype', '')
 
-        # Define the archetype priority for relievers
-        reliever_priority = {
-            'filler arm': 1,
-            'taxi squad reliever': 2,
-            'roster expansion reliever': 3,
-            'bullpen patch': 4,
-            'perpetual callup': 5,
-            'specialist': 6,
-            'long-relief': 7,
-            'low-leverage': 8,
-            'high-leverage': 9,
-            'closer': 10
-        }
-
-        # Determine the player's archetype and type, and return the appropriate priority
-        archetype = player.get('archetype', '').lower()
-        player_type = player.get('type', '').lower()
-
-        if player_type == 'batter':
-            return batter_priority.get(archetype, 0)  # Batter archetype priority
-        elif player_type == 'starter':
-            return starter_priority.get(archetype, 0)  # Starter archetype priority
-        elif player_type == 'reliever':
-            return reliever_priority.get(archetype, 0)  # Reliever archetype priority
-        else:
-            return 0  # Fallback if type not found or archetype is not recognized
+        # Return priority based on grade (same for all player types)
+        return grade_priority.get(archetype, 0)
 
 
 class MarkovChain:

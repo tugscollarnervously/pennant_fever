@@ -745,7 +745,7 @@ class Game:
         used_relievers = self.used_relievers_home if team == self.home_team else self.used_relievers_away
         available_relievers = [
             p for p in team.pitchers
-            if p.type == 'RP' and p not in used_relievers  # Fixed: JSON uses 'RP' not 'Reliever'
+            if p.type == 'Reliever' and p not in used_relievers
         ]
         
         logger.debug(f"Available relievers for {team.team_name} (excluding those already used): {[p.name for p in available_relievers]}")
@@ -1272,7 +1272,7 @@ class Team:
     def get_available_relievers(self, current_day):
         available_relievers = []
         for pitcher in self.pitchers:
-            if pitcher.type == 'RP':  # Only look at relievers (JSON uses 'RP' not 'Reliever')
+            if pitcher.type == 'Reliever':  # Only look at relievers
                 logger.debug(f"Checking reliever: {pitcher.name}")
                 logger.debug(f"current_day: {current_day}, last_relief_day: {pitcher.last_relief_day}, fatigue: {pitcher.fatigue}, relief_value: {pitcher.relief_value}")
                 
@@ -1520,7 +1520,7 @@ class ReliefPitching:
 
     def calculate_relief_value(self, relievers_used, current_day, fatigue_cache):
         available_relievers = sorted(
-            [p for p in self.team.pitchers if p.type == 'RP' and p not in self.used_relievers],  # Fixed: JSON uses 'RP'
+            [p for p in self.team.pitchers if p.type == 'Reliever' and p not in self.used_relievers],
             key=lambda p: p.relief_value * self.get_fatigue_multiplier(p, current_day, fatigue_cache),
             reverse=True
         )
