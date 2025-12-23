@@ -25,6 +25,50 @@ def find_game_info(soup):
     return None
 
 
+def find_linescore(soup):
+    """Extract inning-by-inning linescore from the board1 table."""
+    linescore = {'header': [], 'visitor': [], 'home': []}
+
+    board = soup.find('table', class_='board1')
+    if not board:
+        return None
+
+    rows = board.find_all('tr')
+    for i, row in enumerate(rows):
+        cells = row.find_all('td')
+        row_data = []
+
+        for cell in cells:
+            # Check if cell contains an image (score value)
+            img = cell.find('img')
+            if img and img.get('src'):
+                # Extract value from image filename (e.g., "../../score/2.gif" -> "2")
+                src = img['src']
+                if '/score/' in src:
+                    # Get filename without extension
+                    value = src.split('/')[-1].replace('.gif', '')
+                    row_data.append(value)
+                elif '/team/' in src:
+                    # Team logo - get team name from cell class
+                    team_class = cell.get('class', [''])[0] if cell.get('class') else ''
+                    row_data.append(team_class.upper() if team_class else 'TEAM')
+            else:
+                # Regular text cell
+                text = cell.text.strip()
+                # Skip the "..." separator
+                if text and text != '…':
+                    row_data.append(text)
+
+        if i == 0:
+            linescore['header'] = row_data
+        elif i == 1:
+            linescore['visitor'] = row_data
+        elif i == 2:
+            linescore['home'] = row_data
+
+    return linescore
+
+
 def find_home_runs(soup):
     """Extract home run data from the homerun div section."""
     home_runs = []
@@ -100,7 +144,16 @@ def download_and_save_boxscore(url_suffix, filename, parent_url):
             ws.append(['Game Info', game_info])
         else:
             print(f"Game info not found for {boxscore_url}")
-    
+
+        # Extract and write linescore (inning-by-inning)
+        linescore = find_linescore(soup)
+        if linescore:
+            ws.append([])  # Blank row
+            ws.append(['Linescore'])
+            ws.append(linescore['header'])
+            ws.append(linescore['visitor'])
+            ws.append(linescore['home'])
+
         # Batting headers
         batting_headers = ['Pos', 'Sub', 'Name', 'AB', 'H', 'R', 'K', 'BB', 'SB', 'E', 'AVG', 'HR']
 
