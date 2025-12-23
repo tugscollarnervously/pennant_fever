@@ -84,20 +84,16 @@
       {"text": "He’s capable of working into the middle innings with decent effectiveness.", "min": 3, "max": 4, "weight": 2},
       {"text": "He’s a workhorse who can pitch deep into games without losing effectiveness.", "min": 5, "max": 8, "weight": 3}
     ],
-    "cg_rating": [
-      {"text": "He rarely goes the distance, often getting knocked out before the 6th inning.", "min": 0, "max": 2, "weight": 1},
-      {"text": "He has the ability to finish games occasionally when everything is working.", "min": 3, "max": 4, "weight": 2},
-      {"text": "He’s a complete game machine, regularly finishing what he starts.", "min": 5, "max": 8, "weight": 3}
-    ],
     "sho_rating": [
       {"text": "He struggles to keep runs off the board, often needing help from the bullpen.", "min": 0, "max": 2, "weight": 1},
       {"text": "He can occasionally dominate a game, putting zeros on the scoreboard.", "min": 3, "max": 4, "weight": 2},
       {"text": "He’s a shutdown starter who can blank the opposition.", "min": 5, "max": 8, "weight": 3}
     ],
     "relief_value": [
-      {"text": "He’s a liability out of the bullpen, often giving up runs in key moments.", "min": 0, "max": 2, "weight": 1},
-      {"text": "He’s a serviceable arm who can get a few outs when needed.", "min": 3, "max": 4, "weight": 2},
-      {"text": "He’s a shutdown reliever who can be counted on in high-leverage situations.", "min": 5, "max": 8, "weight": 3}
+      {"text": "He's a liability out of the bullpen, often giving up runs in key moments.", "min": -7, "max": -4, "weight": 1},
+      {"text": "He's a serviceable arm who can get a few outs when needed.", "min": -3, "max": 0, "weight": 2},
+      {"text": "He's a reliable reliever capable of holding leads and getting big outs.", "min": 1, "max": 2, "weight": 2},
+      {"text": "He's a shutdown reliever who can be counted on in high-leverage situations.", "min": 3, "max": 5, "weight": 3}
     ],
     "fatigue": [
       {"text": "He tires easily and needs long recovery times between outings.", "min": 0, "max": 2, "weight": 1},

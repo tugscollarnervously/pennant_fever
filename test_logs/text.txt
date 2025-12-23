@@ -1,0 +1,47 @@
+a. Relief: If the Endurance Value of the starting
+pitcher is GREATER than the numbered
+result in the Pitcher Endurance column, then
+the pitcher does not need relief help and
+nothing further is done. However, if the
+numbered result is EQUAL to or GREATER
+than the pitcher's Endurance Value, then the
+pitcher needs re1ief help. In this event, look
+at the number showing on the red die. This
+numeral is the number of relief pitchers the
+opposing player must choose from his pitching
+staff (a relief pitcher is any pitcher
+possessing a Relief Value; if there are not
+enough relievers on the staff to satisfy this requirement,
+then simply use every available
+one). The OPPOSING player adds up the
+Relief Values of the chosen pitchers with the
+proviso that no sum may be greater than
+( +2) or less than (-2). This sum is then
+ADDED (or SUBTRACTED, as the case
+may be) to the number shown on the white
+die. Then, run calculation is perfonned normally.
+Divide the team Batting Value by the
+product obtained by multiplying the
+pitcher's Start Value by the white die,
+perhaps modified due to relief. EXAMPLE:
+The visiting team has a Batting Value of 30
+and the pitcher has a Start Value and Endurance
+Value of 4. The dice are rolled and
+come up White: 4; Red: 3; Green: 2. The sum
+of the dice (9) is less than 10, 50 the
+Relief/ Defense Chart is consulted. The result
+in the Pitcher Endurance column states "4".
+The pitcher's Endurance Value is not greater
+than this number, so he needs relief help. The
+red die is 3, which is the number of relievers
+that must be chosen from the opposing
+player's staff. The best three relievers on the
+staff have Relief Values of (0), (-1), and (-2).
+When added up, these values come to (-3),
+but remember that no sum may be less than
+(-2). So 2 is subtracted from the white die,
+making it 2. 2 multiplied by 4 (the Start
+Value) yields 8. 30 (the team Batting Value)
+divided by 8 yields 3 and a fraction. Dropping
+the fraction, 3 is the number of runs
+scored by the visiting team in this game.

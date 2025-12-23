@@ -40,7 +40,7 @@ BASE_DIRECTORY = str(PENNANT_FEVER_DIR)
 # LEAGUE TYPE SWITCH - Change this to switch between MLB and fictional leagues
 # =============================================================================
 # Options: "mlb" for historical MLB data, "fictional" for generated fictional leagues
-LEAGUE_TYPE = "fictional"  # Change to "fictional" to use fictional generated teams
+LEAGUE_TYPE = "mlb"  # Change to "fictional" to use fictional generated teams
 
 def get_team_json_directory():
     """Return the appropriate JSON directory based on LEAGUE_TYPE setting."""
@@ -198,9 +198,30 @@ class Game:
             logger.debug(f"No player found at position {field_position}.")
             return {"fielding_value": 0}
 
+    def get_endurance_threshold_from_dice(self, dice_sum):
+        """
+        Get the endurance threshold from the Relief/Defense Chart based on dice sum.
+        Based on original Avalon Hill tabletop game chart.
+        If pitcher's endurance > threshold, they don't need relief help.
+        """
+        # Relief/Defense Chart - Pitcher Endurance column
+        # Only applies when dice sum is 10 or less
+        endurance_chart = {
+            3: 2,
+            4: 2,
+            5: 1,
+            6: 1,
+            7: 2,
+            8: 3,
+            9: 4,
+            10: 5
+        }
+        return endurance_chart.get(dice_sum, 0)  # Default 0 means no relief needed for sum > 10
+
     def check_pitcher_shutout_or_complete_game(self, triad, pitcher, white_die):
         """
-        Checks if the pitcher can achieve a complete game or shutout based on the triad rolled, their ratings, and endurance.
+        Checks if the pitcher can achieve a complete game or shutout based on dice sum and endurance.
+        Uses the original Relief/Defense Chart logic from the tabletop game.
         A short-rested pitcher cannot achieve a CG or SHO.
         """
 
@@ -217,36 +238,40 @@ class Game:
         if days_since_last_start < pitcher.rest:
             logger.debug(f"{pitcher.name} is short-rested and ineligible for CG or SHO.")
             return False, False, False  # No shutout, no complete game, no CG/SHO combo
-        
-        # Adjust the thresholds for complete game and shutout
+
+        # Step 1: Check for Complete Game using endurance + dice sum chart
+        # Per original rules: If dice sum <= 10, consult Relief/Defense Chart
+        # CG achieved if pitcher's endurance > chart threshold
+        if triad <= 10:
+            endurance_threshold = self.get_endurance_threshold_from_dice(triad)
+            is_complete_game = pitcher.endurance > endurance_threshold
+            logger.debug(f"Dice sum {triad} <= 10: Endurance threshold = {endurance_threshold}, "
+                        f"Pitcher endurance = {pitcher.endurance}, CG = {is_complete_game}")
+        else:
+            # Dice sum > 10: Pitcher had a good day, no heavy relief needed
+            # CG is possible if pitcher has decent endurance (>= 4)
+            is_complete_game = pitcher.endurance >= 4
+            logger.debug(f"Dice sum {triad} > 10: Pitcher had good day, CG = {is_complete_game} (endurance {pitcher.endurance})")
+
+        # Step 2: Check for Shutout (independent of CG)
+        # Shutout requires: good dice roll, decent white die, and quality starter
         sho_threshold = pitcher.sho_rating
-        cg_threshold = pitcher.cg_rating
-
-        if triad == 666:
-            logger.debug("Special case: triad is 666, no CG or SHO can happen")
-            return False, False, False  # No shutout, no complete game, no CG/SHO combo
-
-        # Step 1: Check if the pitcher throws a shutout (independent of CG)
         is_shutout = triad > sho_threshold and white_die >= 5 and pitcher.start_value >= 3.0
-        logger.debug(f"triad: {triad}, sho_threshold: {sho_threshold}, white_die: {white_die}, pitcher.start_value: {pitcher.start_value}")
-        logger.debug(f"is_shutout: {is_shutout}")
-
-        # Step 2: Check if the pitcher throws a complete game (independent of shutout)
-        is_complete_game = triad > cg_threshold and white_die >= 6  and pitcher.endurance >= 5
-        logger.debug(f"triad: {triad}, cg_threshold: {cg_threshold}, white_die: {white_die}, pitcher.endurance: {pitcher.endurance}")
-        logger.debug(f"is_complete_game: {is_complete_game}")
+        logger.debug(f"Shutout check: triad {triad} > sho_threshold {sho_threshold}? white_die {white_die} >= 5? "
+                    f"start_value {pitcher.start_value} >= 3.0? Result: {is_shutout}")
 
         # Step 3: Handle the rare case of a complete game shutout (CG/SHO combo)
         if is_shutout and is_complete_game:
-            logger.info(f"{pitcher.name} throws a complete game shutout! (triad: {triad}, cg_threshold: {cg_threshold}, sho_threshold: {sho_threshold}, white_die: {white_die}, pitcher endurance: {pitcher.endurance})")
+            logger.info(f"{pitcher.name} throws a complete game shutout! (dice sum: {triad}, "
+                       f"endurance: {pitcher.endurance}, white_die: {white_die})")
             return True, True, True  # Shutout, complete game, and a CG/SHO combo
 
         # Step 4: Handle the case where it's a shutout but NOT a complete game
         if is_shutout and not is_complete_game:
-            logger.debug(f"is shutout: {is_shutout} / pitcher SHO rating: {pitcher.sho_rating}; is complete game: {is_complete_game} / pitcher CG rating: {pitcher.cg_rating}")
+            logger.debug(f"Shutout but not CG: endurance {pitcher.endurance} not sufficient for dice sum {triad}")
             logger.info(f"{pitcher.name} throws a shutout but does not complete the game!")
             return True, False, False  # Shutout but not a complete game
-        
+
         # Step 5: If only a complete game
         if is_complete_game:
             logger.info(f"{pitcher.name} throws a complete game!")
@@ -745,7 +770,7 @@ class Game:
         used_relievers = self.used_relievers_home if team == self.home_team else self.used_relievers_away
         available_relievers = [
             p for p in team.pitchers
-            if p.type == 'Reliever' and p not in used_relievers
+            if p.type in ('RP', 'Reliever') and p not in used_relievers
         ]
         
         logger.debug(f"Available relievers for {team.team_name} (excluding those already used): {[p.name for p in available_relievers]}")
@@ -791,7 +816,7 @@ class Game:
             # Get best reliever value and adjust with clutch
             best_reliever_away = max(available_relievers_away, key=lambda r: r.relief_value)
             visiting_reliever_value = best_reliever_away.relief_value + best_reliever_away.clutch
-            logger.debug(f"Visiting team's best reliever: {best_reliever_away.name}, Relief Value: {best_reliever_away.relief_value}, Clutch: {best_reliever_away.clutch}")
+            logger.debug(f"Visiting team's best reliever: {best_reliever_away.name}, Relief Value: {best_reliever_away.relief_value}, Clutch: 1{best_reliever_away.clutch}")
         
         # Handle home team relievers
         if not available_relievers_home:
@@ -904,7 +929,7 @@ class Game:
             best_relief_value = max(available_relievers, key=lambda p: p.relief_value).relief_value
             return best_relief_value
         else:
-            return -6  # No reliever available, subtract 6 as per the rules
+            return -6  # No reliever available, return worst-tier value (bad for defense)
 
     def find_winning_reliever(self, team, used_relievers, reliever_innings_distribution, earned_runs_distribution):
         # Filter relievers who have actually pitched (convert innings to float for comparison)
@@ -959,46 +984,60 @@ class Game:
         # If innings data is not stored, log an error and exit
         if away_starter_innings is None or home_starter_innings is None:
             logger.error("Starter innings for away/home not available in result.")
-            return
+            return None, None
 
-        # Determine if the starter qualifies for the decision
-        if away_starter_innings >= 5:
-            away_pitcher.decision = 'W' if away_runs > home_runs else 'L'
-        else:
-            away_pitcher.decision = None
+        # First determine which team won
+        home_team_won = home_runs > away_runs
+        away_team_won = away_runs > home_runs
 
-        if home_starter_innings >= 5:
-            home_pitcher.decision = 'W' if home_runs > away_runs else 'L'
-        else:
-            home_pitcher.decision = None
-
-        # If neither starter qualifies for the win/loss, find the relievers with the decision
+        # Initialize decisions
+        away_pitcher.decision = None
+        home_pitcher.decision = None
         winning_reliever, losing_reliever = None, None
 
-        if away_pitcher.decision is None:
-            winning_reliever = self.find_winning_reliever(self.away_team, self.used_relievers_away, 
-                                                        self.result['away_reliever_innings_distribution'], 
-                                                        self.result['away_reliever_earned_runs'])
+        # Assign starter decisions based on >= 5 IP rule AND correct team outcome
+        # Winning team's starter gets W only if they pitched >= 5 IP
+        # Losing team's starter gets L only if they pitched >= 5 IP
+        if away_team_won:
+            if away_starter_innings >= 5:
+                away_pitcher.decision = 'W'
+            if home_starter_innings >= 5:
+                home_pitcher.decision = 'L'
+        elif home_team_won:
+            if home_starter_innings >= 5:
+                home_pitcher.decision = 'W'
+            if away_starter_innings >= 5:
+                away_pitcher.decision = 'L'
 
-        if home_pitcher.decision is None:
-            losing_reliever = self.find_losing_reliever(self.home_team, self.used_relievers_home, 
-                                                        self.result['home_reliever_innings_distribution'], 
-                                                        self.result['home_reliever_earned_runs'])
+        # If winning team's starter didn't qualify, find winning reliever from WINNING team
+        if away_team_won and away_pitcher.decision != 'W':
+            winning_reliever = self.find_winning_reliever(self.away_team, self.used_relievers_away,
+                                                          self.result['away_reliever_innings_distribution'],
+                                                          self.result['away_reliever_earned_runs'])
+        elif home_team_won and home_pitcher.decision != 'W':
+            winning_reliever = self.find_winning_reliever(self.home_team, self.used_relievers_home,
+                                                          self.result['home_reliever_innings_distribution'],
+                                                          self.result['home_reliever_earned_runs'])
 
-        # If the game outcome requires the opposite reliever for win/loss
-        if home_pitcher.decision is None and winning_reliever is None:
-            winning_reliever = self.find_winning_reliever(self.home_team, self.used_relievers_home, 
-                                                        self.result['home_reliever_innings_distribution'], 
-                                                        self.result['home_reliever_earned_runs'])
-
-        if away_pitcher.decision is None and losing_reliever is None:
-            losing_reliever = self.find_losing_reliever(self.away_team, self.used_relievers_away, 
-                                                        self.result['away_reliever_innings_distribution'], 
-                                                        self.result['away_reliever_earned_runs'])
+        # If losing team's starter didn't qualify, find losing reliever from LOSING team
+        if away_team_won and home_pitcher.decision != 'L':
+            losing_reliever = self.find_losing_reliever(self.home_team, self.used_relievers_home,
+                                                         self.result['home_reliever_innings_distribution'],
+                                                         self.result['home_reliever_earned_runs'])
+        elif home_team_won and away_pitcher.decision != 'L':
+            losing_reliever = self.find_losing_reliever(self.away_team, self.used_relievers_away,
+                                                         self.result['away_reliever_innings_distribution'],
+                                                         self.result['away_reliever_earned_runs'])
 
         # Log the final decisions
-        logger.info(f"Winning Pitcher: {winning_reliever.name if winning_reliever else away_pitcher.name}")
-        logger.info(f"Losing Pitcher: {losing_reliever.name if losing_reliever else home_pitcher.name}")
+        if away_team_won:
+            winning_name = winning_reliever.name if winning_reliever else away_pitcher.name
+            losing_name = losing_reliever.name if losing_reliever else home_pitcher.name
+        else:
+            winning_name = winning_reliever.name if winning_reliever else home_pitcher.name
+            losing_name = losing_reliever.name if losing_reliever else away_pitcher.name
+        logger.info(f"Winning Pitcher: {winning_name}")
+        logger.info(f"Losing Pitcher: {losing_name}")
 
         return winning_reliever, losing_reliever
 
@@ -1057,6 +1096,7 @@ class Game:
         # 5. Award the save to the best reliever
         # best_reliever.award_save()
         logger.debug(f"Save awarded to {best_reliever.name}")
+        return best_reliever
 
     def play_game(self, current_day):
         # Ensure self.day (current_day) is not None
@@ -1078,9 +1118,11 @@ class Game:
         if home_pitcher.last_start_day == 0:
             home_pitcher.last_start_day = None
 
-        # Add pitchers' handedness (throws) to the result
+        # Add pitchers' handedness (throws) and names to the result
         self.result['away_pitcher_throws'] = away_pitcher.throws
         self.result['home_pitcher_throws'] = home_pitcher.throws
+        self.result['away_starter_name'] = away_pitcher.name
+        self.result['home_starter_name'] = home_pitcher.name
 
         # Step 3: Resolve runs for visiting team and store runs and reliever stats
         away_runs, away_total_relief_value, away_starter_innings, away_reliever_innings_distribution, away_earned_runs_distribution, away_unearned_runs_distribution, away_chosen_relievers = self.resolve_team_runs(
@@ -1144,7 +1186,7 @@ class Game:
         is_extra_innings = self.result.get('is_extra_innings', False)
 
         # Finally, check if a save can be awarded for the winning team
-        self.determine_save_situation(
+        save_reliever = self.determine_save_situation(
             winning_reliever=winning_reliever,
             chosen_relievers=chosen_relievers,
             is_extra_innings=is_extra_innings,
@@ -1155,6 +1197,25 @@ class Game:
             away_runs=self.result['away_runs']   # Pass away_runs
         )
 
+        # Add pitcher decisions to result for season tracking
+        self.result['away_starter_decision'] = away_pitcher.decision
+        self.result['home_starter_decision'] = home_pitcher.decision
+        self.result['winning_reliever_name'] = winning_reliever.name if winning_reliever else None
+        self.result['losing_reliever_name'] = losing_reliever.name if losing_reliever else None
+        self.result['save_reliever_name'] = save_reliever.name if save_reliever else None
+
+        # Track which team each reliever with a decision belongs to
+        # Winning reliever is from winning team, losing reliever from losing team
+        if self.result['home_runs'] > self.result['away_runs']:
+            # Home team won
+            self.result['winning_reliever_team_id'] = self.home_team.team_id if winning_reliever else None
+            self.result['losing_reliever_team_id'] = self.away_team.team_id if losing_reliever else None
+            self.result['save_team_id'] = self.home_team.team_id if save_reliever else None
+        else:
+            # Away team won
+            self.result['winning_reliever_team_id'] = self.away_team.team_id if winning_reliever else None
+            self.result['losing_reliever_team_id'] = self.home_team.team_id if losing_reliever else None
+            self.result['save_team_id'] = self.away_team.team_id if save_reliever else None
 
         # Step 8: Update last start day for both starting pitchers
         home_pitcher.last_start_day = current_day
@@ -1272,7 +1333,7 @@ class Team:
     def get_available_relievers(self, current_day):
         available_relievers = []
         for pitcher in self.pitchers:
-            if pitcher.type == 'Reliever':  # Only look at relievers
+            if pitcher.type in ('RP', 'Reliever'):  # Only look at relievers
                 logger.debug(f"Checking reliever: {pitcher.name}")
                 logger.debug(f"current_day: {current_day}, last_relief_day: {pitcher.last_relief_day}, fatigue: {pitcher.fatigue}, relief_value: {pitcher.relief_value}")
                 
@@ -1299,8 +1360,10 @@ class Team:
         
         for player in self.players:
             if player.role == 'Starter':  # Assuming only starters contribute to batting value
-                # Calculate base batting value as batting + eye + a fraction of power
-                player_bv = player.batting + player.eye + (player.power * 0.4)  # Reduced from 0.6 to lower scoring
+                # Calculate base batting value with reduced weights to target ~4.5 runs/team/game
+                # Old formula produced ~6-10 BV per player (50-70 team BV) → 8-11 runs
+                # New formula targets ~3-4 BV per player (27-36 team BV) → 4-6 runs
+                player_bv = (player.batting * 0.6) + (player.eye * 0.3) + (player.power * 0.15)
 
                 # Initialize default modifiers
                 batter_modifier = 0
@@ -1409,18 +1472,17 @@ class Player:
         self.salary = salary
 
 class Pitcher:
-    def __init__(self, name, type, start_value, endurance, rest, relief_value, fatigue, cg_rating=666, sho_rating=666, throws='R', clutch=0, injury=0, salary=0, splits_L=0, splits_R=0):
+    def __init__(self, name, type, start_value, endurance, rest, relief_value, fatigue, sho_rating=666, throws='R', clutch=0, injury=0, salary=0, splits_L=0, splits_R=0):
         self.name = name
         self.throws = throws  # Handedness (R or L)
         self.type = type  # "SP" for starter or "RP" for reliever
         self.start_value = start_value  # Starting value (pitching quality)
-        self.endurance = endurance  # How long they can pitch in a game
+        self.endurance = endurance  # How long they can pitch in a game (also determines CG eligibility via chart)
         self.rest = rest  # Days required between starts/appearances
-        self.cg_rating = cg_rating
-        self.sho_rating = sho_rating
+        self.sho_rating = sho_rating  # Shutout rating (611-666 scale)
         self.splits_L = splits_L
         self.splits_R = splits_R
-        self.relief_value = relief_value  # Relief value
+        self.relief_value = relief_value  # Relief value (higher = better, range -7 to +5)
         self.fatigue = fatigue
         self.last_start_day = None  # Initialize to allow immediate start
         self.last_relief_day = None  # Initialize as None for relievers
@@ -1520,7 +1582,7 @@ class ReliefPitching:
 
     def calculate_relief_value(self, relievers_used, current_day, fatigue_cache):
         available_relievers = sorted(
-            [p for p in self.team.pitchers if p.type == 'Reliever' and p not in self.used_relievers],
+            [p for p in self.team.pitchers if p.type in ('RP', 'Reliever') and p not in self.used_relievers],
             key=lambda p: p.relief_value * self.get_fatigue_multiplier(p, current_day, fatigue_cache),
             reverse=True
         )
@@ -1970,8 +2032,14 @@ class BatterStats:
         self.batter_stats = self.read_batter_stats(batter_stats_file)
 
 class PitcherStats:
-    def __init__(self):
+    def __init__(self, name="", team="", pitcher_type=""):
+        self.name = name
+        self.team = team
+        self.pitcher_type = pitcher_type  # 'Starter' or 'Reliever'
         self.games_played = 0
+        self.games_started = 0
+        self.complete_games = 0
+        self.games_finished = 0
         self.innings_pitched = 0.0
         self.runs_allowed = 0
         self.earned_runs = 0
@@ -1984,7 +2052,9 @@ class PitcherStats:
         self.saves = 0
         self.blown_saves = 0
 
-    def update_stats(self, innings, runs, earned_runs, strikeouts, walks, hits, home_runs, decision=None):
+    def update_stats(self, innings, runs, earned_runs, strikeouts=0, walks=0, hits=0, home_runs=0,
+                     decision=None, is_start=False, is_complete_game=False, is_game_finished=False):
+        self.games_played += 1
         self.innings_pitched += innings
         self.runs_allowed += runs
         self.earned_runs += earned_runs
@@ -1992,7 +2062,14 @@ class PitcherStats:
         self.walks += walks
         self.hits_allowed += hits
         self.home_runs_allowed += home_runs
-        
+
+        if is_start:
+            self.games_started += 1
+        if is_complete_game:
+            self.complete_games += 1
+        if is_game_finished:
+            self.games_finished += 1
+
         if decision == 'W':
             self.wins += 1
         elif decision == 'L':
@@ -2001,12 +2078,112 @@ class PitcherStats:
             self.saves += 1
         elif decision == 'BS':
             self.blown_saves += 1
-        
+
     def calculate_era(self):
         return (self.earned_runs / self.innings_pitched) * 9 if self.innings_pitched > 0 else 0
 
     def calculate_whip(self):
         return (self.walks + self.hits_allowed) / self.innings_pitched if self.innings_pitched > 0 else 0
+
+    def to_dict(self):
+        """Convert stats to dictionary for DataFrame export."""
+        return {
+            'Name': self.name,
+            'Team': self.team,
+            'W': self.wins,
+            'L': self.losses,
+            'G': self.games_played,
+            'GS': self.games_started,
+            'CG': self.complete_games,
+            'SV': self.saves,
+            'GF': self.games_finished,
+            'IP': round(self.innings_pitched, 1),
+            'R': self.runs_allowed,
+            'ER': self.earned_runs,
+            'ERA': round(self.calculate_era(), 2) if self.innings_pitched > 0 else 0.00,
+        }
+
+
+class SeasonPitcherTracker:
+    """Track pitcher stats across an entire season for all teams."""
+
+    def __init__(self):
+        # Dictionary: {team_id: {pitcher_name: PitcherStats}}
+        self.pitcher_stats = {}
+
+    def get_or_create_pitcher(self, team_id, team_name, pitcher_name, pitcher_type):
+        """Get existing pitcher stats or create new entry."""
+        if team_id not in self.pitcher_stats:
+            self.pitcher_stats[team_id] = {}
+
+        if pitcher_name not in self.pitcher_stats[team_id]:
+            self.pitcher_stats[team_id][pitcher_name] = PitcherStats(
+                name=pitcher_name,
+                team=team_name,
+                pitcher_type=pitcher_type
+            )
+
+        return self.pitcher_stats[team_id][pitcher_name]
+
+    def update_starter_stats(self, team_id, team_name, pitcher_name, innings, earned_runs,
+                              unearned_runs=0, decision=None, is_complete_game=False):
+        """Update stats for a starting pitcher."""
+        stats = self.get_or_create_pitcher(team_id, team_name, pitcher_name, 'Starter')
+        total_runs = earned_runs + unearned_runs
+        stats.update_stats(
+            innings=innings,
+            runs=total_runs,
+            earned_runs=earned_runs,
+            decision=decision,
+            is_start=True,
+            is_complete_game=is_complete_game
+        )
+
+    def update_reliever_stats(self, team_id, team_name, pitcher_name, innings, earned_runs,
+                               unearned_runs=0, decision=None, is_game_finished=False):
+        """Update stats for a relief pitcher."""
+        stats = self.get_or_create_pitcher(team_id, team_name, pitcher_name, 'Reliever')
+        total_runs = earned_runs + unearned_runs
+        stats.update_stats(
+            innings=innings,
+            runs=total_runs,
+            earned_runs=earned_runs,
+            decision=decision,
+            is_game_finished=is_game_finished
+        )
+
+    def export_to_excel(self, filepath):
+        """Export all pitcher stats to Excel with separate sheets for starters and relievers."""
+        starters_data = []
+        relievers_data = []
+
+        for team_id, pitchers in self.pitcher_stats.items():
+            for pitcher_name, stats in pitchers.items():
+                if stats.pitcher_type in ('SP', 'Starter'):
+                    starters_data.append(stats.to_dict())
+                else:
+                    relievers_data.append(stats.to_dict())
+
+        # Create DataFrames
+        starters_df = pd.DataFrame(starters_data)
+        relievers_df = pd.DataFrame(relievers_data)
+
+        # Sort by ERA (ascending) for meaningful order
+        if not starters_df.empty:
+            starters_df = starters_df.sort_values(['Team', 'W'], ascending=[True, False])
+        if not relievers_df.empty:
+            relievers_df = relievers_df.sort_values(['Team', 'SV', 'W'], ascending=[True, False, False])
+
+        # Write to Excel with separate sheets
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            if not starters_df.empty:
+                starters_df.to_excel(writer, sheet_name='Starters', index=False)
+            if not relievers_df.empty:
+                relievers_df.to_excel(writer, sheet_name='Relievers', index=False)
+
+        logger.info(f"Pitcher stats exported to: {filepath}")
+        logger.info(f"  Starters: {len(starters_data)} pitchers")
+        logger.info(f"  Relievers: {len(relievers_data)} pitchers")
 
 class Standings:
     def __init__(self, sub_leagues, team_lookup):
@@ -2156,7 +2333,7 @@ class Standings:
             for division_name, teams in divisions.items():
                 logger.info(f"\n{division_name} Division")
                 logger.info("-" * (len(division_name) + 10))
-                logger.info(f"{'Team':<20} {'W':<5} {'L':<5} {'PCT':<6} {'GB':<5} {'RS':<5} {'RA':<5} {'BV':<5} {'SV':<5} {'RV':<5} {'Pyth W-L':<10} {'Luck':<5} {'Home':<10} {'Away':<10} {'1-Run':<10} {'Extra':<10} {'vs RHP':<10} {'vs LHP':<10}")
+                logger.info(f"{'Team':<20} {'W':<5} {'L':<5} {'PCT':<6} {'GB':<5} {'R/G':<5} {'RS':<5} {'RA':<5} {'BV':<5} {'SV':<5} {'RV':<5} {'Pyth W-L':<10} {'Luck':<5} {'Home':<10} {'Away':<10} {'1-Run':<10} {'Extra':<10} {'vs RHP':<10} {'vs LHP':<10}")
 
                 # Get the stats for the teams and sort them by win percentage
                 team_list = []
@@ -2175,6 +2352,8 @@ class Standings:
                 # logger.debug the sorted teams with all stats
                 for team_id, wins, losses, win_pct, team_stats in team_list:
                     games_behind = team_stats.games_behind(leader_wins, leader_losses)
+                    games_played = wins + losses
+                    runs_per_game = round(team_stats.run_scored / games_played, 1) if games_played > 0 else 0.0
                     home_record = f"{team_stats.home_wins}-{team_stats.home_losses}"
                     away_record = f"{team_stats.away_wins}-{team_stats.away_losses}"
                     one_run_record = f"{team_stats.one_run_games['wins']}-{team_stats.one_run_games['losses']}"
@@ -2188,7 +2367,7 @@ class Standings:
                     avg_sv = team_obj.get_avg_sv() if team_obj else 0.0
                     avg_rv = team_obj.get_avg_rv() if team_obj else 0.0
 
-                    logger.info(f"{team_stats.team_name:<20} {wins:<5} {losses:<5} {win_pct:<6} {games_behind:<5} {team_stats.run_scored:<5} {team_stats.run_allowed:<5} {avg_bv:<5} {avg_sv:<5} {avg_rv:<5} {team_stats.pyth_wins}-{team_stats.pyth_losses:<10} {team_stats.luck:<5} {home_record:<10} {away_record:<10} {one_run_record:<10} {extra_innings_record:<10} {vs_rhp_record:<10} {vs_lhp_record:<10}")
+                    logger.info(f"{team_stats.team_name:<20} {wins:<5} {losses:<5} {win_pct:<6} {games_behind:<5} {runs_per_game:<5} {team_stats.run_scored:<5} {team_stats.run_allowed:<5} {avg_bv:<5} {avg_sv:<5} {avg_rv:<5} {team_stats.pyth_wins}-{team_stats.pyth_losses:<10} {team_stats.luck:<5} {home_record:<10} {away_record:<10} {one_run_record:<10} {extra_innings_record:<10} {vs_rhp_record:<10} {vs_lhp_record:<10}")
 
 class Playoffs:
     def __init__(self, standings, team_stats_lookup, power_chart, speed_bench_chart, relief_defense_chart):
@@ -2496,7 +2675,6 @@ def load_team_from_json(file_path):
                 throws=p.get('throws', 'R'),  # Default to 'R' if not provided
                 injury=p.get('injury', 0),
                 salary=p.get('salary', 0),
-                cg_rating=p.get('cg_rating', p.get('CG_rating', 666)),  # Support both cases
                 sho_rating=p.get('sho_rating', p.get('SHO_rating', 666)),  # Support both cases
                 fatigue=p.get('fatigue', 0),
                 clutch=p.get('clutch', 0)
@@ -2617,6 +2795,9 @@ def main():
     # Pass team_lookup to Standings
     standings = Standings(sub_leagues, team_lookup)
 
+    # Initialize season pitcher stats tracker
+    pitcher_tracker = SeasonPitcherTracker()
+
     # Load the schedule file (assuming we use the schedule name from league.json)
     schedule = Schedule(os.path.join(BASE_DIRECTORY, league_data['schedule_name']))
 
@@ -2665,6 +2846,117 @@ def main():
             home_team.save_team_data()
             away_team.save_team_data()
 
+            # Update pitcher tracker with game stats
+            # NOTE: Due to a quirk in ReliefPitching code, reliever distributions contain
+            # relievers from the BATTING team, not the pitching team. The naming is confusing:
+            # - 'away_reliever_innings_distribution' = AWAY team's relievers (when away batted)
+            # - 'home_reliever_innings_distribution' = HOME team's relievers (when home batted)
+
+            # HOME starter stats (they pitched against away batting)
+            home_starter_name = result.get('home_starter_name')
+            home_starter_innings = result.get('away_starter_innings', 0)
+            home_starter_decision = result.get('home_starter_decision')
+            is_home_cg = home_starter_innings >= 9.0
+
+            # Away reliever data (these are actually AWAY team's relievers due to code quirk)
+            away_reliever_innings = result.get('away_reliever_innings_distribution', {})
+            away_reliever_er = result.get('away_reliever_earned_runs', {})
+            away_reliever_ur = result.get('away_reliever_unearned_runs', {})
+            if not isinstance(away_reliever_innings, dict):
+                away_reliever_innings = {}
+            if not isinstance(away_reliever_er, dict):
+                away_reliever_er = {}
+            if not isinstance(away_reliever_ur, dict):
+                away_reliever_ur = {}
+
+            # Calculate home starter runs (runs allowed when away batted, minus what relievers allowed)
+            total_reliever_runs_away = sum(away_reliever_er.values()) + sum(away_reliever_ur.values())
+            home_starter_runs = max(0, result['away_runs'] - total_reliever_runs_away)
+
+            if home_starter_name:
+                pitcher_tracker.update_starter_stats(
+                    team_id=home_team_id, team_name=home_team.team_name,
+                    pitcher_name=home_starter_name, innings=home_starter_innings,
+                    earned_runs=home_starter_runs, unearned_runs=0,
+                    decision=home_starter_decision, is_complete_game=is_home_cg
+                )
+
+            # AWAY starter stats (they pitched against home batting)
+            away_starter_name = result.get('away_starter_name')
+            away_starter_innings = result.get('home_starter_innings', 0)
+            away_starter_decision = result.get('away_starter_decision')
+            is_away_cg = away_starter_innings >= 9.0
+
+            # Home reliever data (these are actually HOME team's relievers due to code quirk)
+            home_reliever_innings = result.get('home_reliever_innings_distribution', {})
+            home_reliever_er = result.get('home_reliever_earned_runs', {})
+            home_reliever_ur = result.get('home_reliever_unearned_runs', {})
+            if not isinstance(home_reliever_innings, dict):
+                home_reliever_innings = {}
+            if not isinstance(home_reliever_er, dict):
+                home_reliever_er = {}
+            if not isinstance(home_reliever_ur, dict):
+                home_reliever_ur = {}
+
+            # Calculate away starter runs
+            total_reliever_runs_home = sum(home_reliever_er.values()) + sum(home_reliever_ur.values())
+            away_starter_runs = max(0, result['home_runs'] - total_reliever_runs_home)
+
+            if away_starter_name:
+                pitcher_tracker.update_starter_stats(
+                    team_id=away_team_id, team_name=away_team.team_name,
+                    pitcher_name=away_starter_name, innings=away_starter_innings,
+                    earned_runs=away_starter_runs, unearned_runs=0,
+                    decision=away_starter_decision, is_complete_game=is_away_cg
+                )
+
+            # Track AWAY team relievers (from away_reliever_innings - they are AWAY team's relievers)
+            save_reliever = result.get('save_reliever_name')
+            save_team = result.get('save_team_id')
+            winning_reliever_team = result.get('winning_reliever_team_id')
+            losing_reliever_team = result.get('losing_reliever_team_id')
+
+            for reliever_name, innings_str in away_reliever_innings.items():
+                innings = float(innings_str) if innings_str else 0.0
+                er = away_reliever_er.get(reliever_name, 0)
+                ur = away_reliever_ur.get(reliever_name, 0)
+                decision = None
+                # Only credit W/L/S if this reliever's TEAM matches
+                if reliever_name == result.get('winning_reliever_name') and winning_reliever_team == away_team_id:
+                    decision = 'W'
+                elif reliever_name == result.get('losing_reliever_name') and losing_reliever_team == away_team_id:
+                    decision = 'L'
+                elif reliever_name == save_reliever and save_team == away_team_id:
+                    decision = 'S'
+                is_game_finished = (decision == 'S')
+                pitcher_tracker.update_reliever_stats(
+                    team_id=away_team_id, team_name=away_team.team_name,
+                    pitcher_name=reliever_name, innings=innings,
+                    earned_runs=er, unearned_runs=ur,
+                    decision=decision, is_game_finished=is_game_finished
+                )
+
+            # Track HOME team relievers (from home_reliever_innings - they are HOME team's relievers)
+            for reliever_name, innings_str in home_reliever_innings.items():
+                innings = float(innings_str) if innings_str else 0.0
+                er = home_reliever_er.get(reliever_name, 0)
+                ur = home_reliever_ur.get(reliever_name, 0)
+                decision = None
+                # Only credit W/L/S if this reliever's TEAM matches
+                if reliever_name == result.get('winning_reliever_name') and winning_reliever_team == home_team_id:
+                    decision = 'W'
+                elif reliever_name == result.get('losing_reliever_name') and losing_reliever_team == home_team_id:
+                    decision = 'L'
+                elif reliever_name == save_reliever and save_team == home_team_id:
+                    decision = 'S'
+                is_game_finished = (decision == 'S')
+                pitcher_tracker.update_reliever_stats(
+                    team_id=home_team_id, team_name=home_team.team_name,
+                    pitcher_name=reliever_name, innings=innings,
+                    earned_runs=er, unearned_runs=ur,
+                    decision=decision, is_game_finished=is_game_finished
+                )
+
         # At the end of each day, display standings and save them
         standings.display_standings(team_stats_lookup)
         standings.save_standings()
@@ -2672,6 +2964,10 @@ def main():
     # At the end of the season, display the final standings
     logger.info("\n=== Final Standings ===")
     standings.display_standings(team_stats_lookup)
+
+    # Export pitcher stats to Excel
+    pitcher_stats_path = os.path.join(get_team_json_directory(), 'season_pitcher_stats.xlsx')
+    pitcher_tracker.export_to_excel(pitcher_stats_path)
 
     # After the regular season is complete, initiate the playoffs
     playoffs = Playoffs(standings, team_stats_lookup, power_chart, speed_bench_chart, relief_defense_chart)

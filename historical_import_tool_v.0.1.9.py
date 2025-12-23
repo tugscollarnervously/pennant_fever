@@ -434,31 +434,43 @@ def calculate_start_value(era, games_started):
         return 1.0
 
 def calculate_endurance(ip, cg, gs):
+    """
+    Calculate pitcher endurance based on average IP in non-CG starts.
+    Returns float in range 0-8 for granularity.
+
+    Recalibrated for modern game where pitchers average ~5.2 IP/start.
+    Uses linear interpolation between:
+    - 4.0 IP/start → 0 endurance
+    - 7.0 IP/start → 8 endurance
+
+    This gives a modern 5.2 IP/start pitcher an endurance of ~3.2,
+    which produces more realistic CG rates with the dice chart.
+    """
     innings = ip - (9 * cg)
     games_not_completed = gs - cg
-    if games_not_completed > 0:
-        innings_per_game = (innings / games_not_completed)
-    else:
-        innings_per_game = 0  # or another appropriate default value
 
-    if innings_per_game <= 4.16:
-        return 0
-    elif innings_per_game <= 4.50:
-        return 1
-    elif innings_per_game <= 4.83:
-        return 2
-    elif innings_per_game <= 5.16:
-        return 3
-    elif innings_per_game <= 5.50:
-        return 4
-    elif innings_per_game <= 5.83:
-        return 5
-    elif innings_per_game <= 6.16:
-        return 6
-    elif innings_per_game <= 6.50:
-        return 7
-    elif innings_per_game >= 6.51:
-        return 8
+    if games_not_completed > 0:
+        innings_per_game = innings / games_not_completed
+    else:
+        # If all starts were CGs (rare), use total IP/GS as estimate
+        innings_per_game = ip / gs if gs > 0 else 0
+
+    # Linear interpolation: 4.0 IP → 0, 7.0 IP → 8
+    min_ip = 4.0
+    max_ip = 7.0
+    min_endurance = 0.0
+    max_endurance = 8.0
+
+    # Calculate endurance with linear interpolation
+    if innings_per_game <= min_ip:
+        endurance = min_endurance
+    elif innings_per_game >= max_ip:
+        endurance = max_endurance
+    else:
+        endurance = ((innings_per_game - min_ip) / (max_ip - min_ip)) * (max_endurance - min_endurance)
+
+    # Round to 1 decimal place for readability
+    return round(endurance, 1)
 
 def calculate_rest(gs):
     if gs >= 40:
@@ -473,86 +485,6 @@ def calculate_rest(gs):
         return 7
     elif gs <= 9:
         return 8
-
-def calculate_cg_rating(cg, gs):
-    if gs > 0:
-        cg_percentage = (cg / gs) * 100  # Convert to percentage
-    else:
-        cg_percentage = 0  # Handle the case when there are no games started
-
-    
-    if cg_percentage >= 16.20:
-        return 611
-    elif cg_percentage >= 15.74:
-        return 612
-    elif cg_percentage >= 15.28:
-        return 613
-    elif cg_percentage >= 14.81:
-        return 614
-    elif cg_percentage >= 14.35:
-        return 615
-    elif cg_percentage >= 13.89:
-        return 616
-    elif cg_percentage >= 13.43:
-        return 621
-    elif cg_percentage >= 12.96:
-        return 622
-    elif cg_percentage >= 12.50:
-        return 623
-    elif cg_percentage >= 12.04:
-        return 624
-    elif cg_percentage >= 11.57:
-        return 625
-    elif cg_percentage >= 11.11:
-        return 626
-    elif cg_percentage >= 10.65:
-        return 631
-    elif cg_percentage >= 10.19:
-        return 632
-    elif cg_percentage >= 9.72:
-        return 633
-    elif cg_percentage >= 9.26:
-        return 634
-    elif cg_percentage >= 8.80:
-        return 635
-    elif cg_percentage >= 8.33:
-        return 636
-    elif cg_percentage >= 7.87:
-        return 641
-    elif cg_percentage >= 7.41:
-        return 642
-    elif cg_percentage >= 6.94:
-        return 643
-    elif cg_percentage >= 6.48:
-        return 644
-    elif cg_percentage >= 6.02:
-        return 645
-    elif cg_percentage >= 5.56:
-        return 646
-    elif cg_percentage >= 5.09:
-        return 651
-    elif cg_percentage >= 4.63:
-        return 652
-    elif cg_percentage >= 4.17:
-        return 653
-    elif cg_percentage >= 3.70:
-        return 654
-    elif cg_percentage >= 3.24:
-        return 655
-    elif cg_percentage >= 2.78:
-        return 656
-    elif cg_percentage >= 2.31:
-        return 661
-    elif cg_percentage >= 1.85:
-        return 662
-    elif cg_percentage >= 1.39:
-        return 663
-    elif cg_percentage >= 0.93:
-        return 664
-    elif cg_percentage >= 0.46:
-        return 665
-    else:
-        return 666
 
 def calculate_sho_rating(sho, gs):
     if gs > 0:
@@ -664,32 +596,35 @@ def calculate_relief_value(xfip):
 '''
 
 def calculate_relief_value(era):
-    if era <= 2.17:
-        return -5
-    elif era <= 2.42:
-        return -4
-    elif era <= 2.67:
-        return -3
-    elif era <= 2.92:
-        return -2
-    elif era <= 3.17:
-        return -1
-    elif era <= 3.42:
-        return 0
-    elif era <= 3.75:
-        return 1
-    elif era <= 4.25:
-        return 2
-    elif era <= 4.75:
-        return 3
-    elif era <= 5.25:
-        return 4
-    elif era <= 6.00:
-        return 5
-    elif era <= 6.75:
-        return 6
+    """
+    Calculate relief value from ERA. Higher = better (range: -7 to +5).
+    Uses linear interpolation for float granularity.
+
+    Scale:
+    - ERA 2.00 or lower → +5 (elite closer)
+    - ERA 3.50 → 0 (average)
+    - ERA 7.00 or higher → -7 (worst)
+    """
+    min_era = 2.00  # Elite threshold
+    mid_era = 3.50  # Average threshold
+    max_era = 7.00  # Worst threshold
+
+    max_value = 5.0   # Best relief value
+    mid_value = 0.0   # Average relief value
+    min_value = -7.0  # Worst relief value
+
+    if era <= min_era:
+        return max_value
+    elif era >= max_era:
+        return min_value
+    elif era <= mid_era:
+        # Linear interpolation from elite to average
+        relief_value = max_value - ((era - min_era) / (mid_era - min_era)) * (max_value - mid_value)
     else:
-        return 7
+        # Linear interpolation from average to worst
+        relief_value = mid_value - ((era - mid_era) / (max_era - mid_era)) * (mid_value - min_value)
+
+    return round(relief_value, 1)
 
 def calculate_pitching_splits():
     pass
@@ -787,13 +722,6 @@ def apply_pitching_ratings(pitching_df):
             pitching_df['rest'] = pitching_df['GS'].apply(
                 lambda x: calculate_rest(x) if pd.notnull(x) and not isinstance(x, pd.Series) else 0
             )
-
-        if 'CG' in pitching_df.columns and 'GS' in pitching_df.columns:
-            pitching_df['CG_rating'] = pitching_df.apply(
-                lambda row: calculate_cg_rating(
-                    row['CG'] if pd.notnull(row['CG']) and not isinstance(row['CG'], pd.Series) else 0,
-                    row['GS'] if pd.notnull(row['GS']) and not isinstance(row['GS'], pd.Series) else 0
-                ), axis=1)
 
         if 'SHO' in pitching_df.columns and 'GS' in pitching_df.columns:
             pitching_df['SHO_rating'] = pitching_df.apply(
@@ -1489,7 +1417,6 @@ def create_pitcher_json(player_row, pitching_df, fielding_df):
         "start_value": calculate_start_value(era, gs),  # Calculate start value based on ERA
         "endurance": calculate_endurance(ip, cg, gs),  # Calculate endurance based on innings, CG, and GS
         "rest": calculate_rest(gs),  # Calculate rest based on GS
-        "cg_rating": calculate_cg_rating(cg, gs),  # Complete games rating (lowercase to match game)
         "sho_rating": calculate_sho_rating(sho, gs),  # Shutouts rating (lowercase to match game)
         "splits_L": int(splits_L),  # Splits vs left-handed batters
         "splits_R": int(splits_R),  # Splits vs right-handed batters

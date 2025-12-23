@@ -462,10 +462,10 @@ class NameGen:
         return school_name, school_type  # Return both name and type
 
 class Archetype:
-    def __init__(self, name, 
-                 contact_range=None, power_range=None, eye_range=None, splits_range=None, speed_range=None, fielding_range=None, 
-                 potential_range=None, 
-                 start_value_range=None, endurance_range=None, rest_range=None, cg_rating_range=None, 
+    def __init__(self, name,
+                 contact_range=None, power_range=None, eye_range=None, splits_range=None, speed_range=None, fielding_range=None,
+                 potential_range=None,
+                 start_value_range=None, endurance_range=None, rest_range=None,
                  sho_rating_range=None, relief_value_range=None, fatigue_range=None,
                  dev_ceiling_age=25, decline_age=32):
         self.name = name
@@ -483,7 +483,6 @@ class Archetype:
         self.start_value_range = start_value_range
         self.endurance_range = endurance_range
         self.rest_range = rest_range
-        self.cg_rating_range = cg_rating_range
         self.sho_rating_range = sho_rating_range
         self.relief_value_range = relief_value_range
         self.fatigue_range = fatigue_range
@@ -831,7 +830,7 @@ class BatterProfile:
         return splits_L, splits_R
 
     def generate_attribute(self, range_tuple, attribute_name, age_affected=True):
-        """Generate a rating based on a given range, skewed by archetype quality."""
+        """Generate a FLOAT rating based on a given range, skewed by archetype quality."""
         floor, ceiling = range_tuple
 
         # Skewed distribution depending on archetype quality (20-80 scale)
@@ -843,77 +842,99 @@ class BatterProfile:
             rating = self.skewed_random(floor, ceiling, skew="low")
         else:
             # Average archetypes (40, 50, 60) have a balanced distribution
-            rating = np.random.randint(floor, ceiling + 1)
+            # Use uniform float instead of randint for more granularity
+            rating = round(np.random.uniform(floor, ceiling), 1)
 
         # Clamp the values within the floor/ceiling bounds
-        return np.clip(rating, floor, ceiling)
+        return round(np.clip(rating, floor, ceiling), 1)
 
     def skewed_random(self, floor, ceiling, skew="neutral"):
-        """Generate a random number in the floor/ceiling range, skewed to high or low, with a chance for extremes."""
-        
+        """Generate a random FLOAT in the floor/ceiling range, skewed to high or low, with a chance for extremes."""
+
         # Introduce a small chance (e.g., 5%) of hitting the extreme values
         if np.random.rand() < 0.05:
             # 5% chance to return the exact floor or ceiling (depending on skew)
             if skew == "high":
-                return ceiling
+                return float(ceiling)
             elif skew == "low":
-                return floor
+                return float(floor)
 
-        # Standard beta distribution logic
+        # Standard beta distribution logic - now returns floats rounded to 1 decimal
         if skew == "high":
-            # Skew towards higher values (better performance against opposite-handedness)
-            return int(np.random.beta(2, 5) * (ceiling - floor) + floor)
+            # Skew towards higher values
+            return round(np.random.beta(2, 5) * (ceiling - floor) + floor, 1)
         elif skew == "low":
-            # Skew towards lower values (worse performance against same-handedness)
-            return int(np.random.beta(5, 2) * (ceiling - floor) + floor)
+            # Skew towards lower values
+            return round(np.random.beta(5, 2) * (ceiling - floor) + floor, 1)
         else:
-            # Neutral distribution for switch hitters
-            return np.random.randint(floor, ceiling + 1)
+            # Neutral distribution - use uniform float
+            return round(np.random.uniform(floor, ceiling), 1)
 
     def adjust_by_age(self):
-        """Adjust attributes based on player's age."""
-        # dev difference should also be mitigated by potential rating (higher rating, less penalty)
+        """
+        Adjust attributes based on player's age using PERCENTAGE-BASED penalties.
+        This prevents young/old batters from being completely destroyed by age adjustments.
+        """
         dev_diff = self.archetype.dev_ceiling_age - self.bio['age']
         decline_diff = self.bio['age'] - self.archetype.decline_age
 
-        # Log development and decline calculations
-        logger.debug(f"LINE 632 - Development difference: {dev_diff}, Decline difference: {decline_diff}")
+        # Store original values for logging
+        original_contact = self.contact
+        original_power = self.power
+        original_speed = self.speed
 
-        # List of top and second-tier archetypes
-        top_tier_archetypes = ["5-tool"]
-        second_tier_archetypes = ["star", "regular starter"]
+        # Penalty rates - percentage per year away from peak
+        DEV_PENALTY_RATE = 0.08  # 8% per year under dev ceiling
+        DECLINE_PENALTY_RATE = 0.10  # 10% per year over decline age
+        MAX_DEV_PENALTY = 0.35  # Cap development penalty at 35%
+        MAX_DECLINE_PENALTY = 0.45  # Cap decline penalty at 45%
 
-        # Determine penalty adjustments based on archetype
-        if self.archetype.name in top_tier_archetypes:
-            adjusted_decline = max(0, decline_diff - 2)  # Reduce penalty by 2
-        elif self.archetype.name in second_tier_archetypes:
-            adjusted_decline = max(0, decline_diff - 1)  # Reduce penalty by 1
-        else:
-            adjusted_decline = decline_diff  # Apply regular penalty
+        # Elite batters (20-80 scale) decline more gracefully
+        if self.archetype.name == "80":
+            DECLINE_PENALTY_RATE = 0.06
+            MAX_DECLINE_PENALTY = 0.35
+        elif self.archetype.name == "70":
+            DECLINE_PENALTY_RATE = 0.08
+            MAX_DECLINE_PENALTY = 0.40
 
         if self.bio['age'] < self.archetype.dev_ceiling_age:
-            logger.debug(f"LINE 647 - {self.name} is under development ceiling. Reducing ratings by {dev_diff}")
-            # Penalize for being underdeveloped
-            self.contact -= dev_diff
-            self.power -= dev_diff
-            self.speed -= dev_diff
-            self.fielding -= dev_diff
+            # Young batter - not yet at peak
+            penalty_pct = min(dev_diff * DEV_PENALTY_RATE, MAX_DEV_PENALTY)
+
+            # Apply percentage-based penalties to each rating
+            self.contact -= self.contact * penalty_pct
+            self.power -= self.power * penalty_pct
+            self.speed -= self.speed * penalty_pct
+            self.fielding -= abs(self.fielding) * penalty_pct if self.fielding > 0 else 0
+
+            logger.info(f"AGE ADJ (Young): {self.name} age {self.bio['age']} ({dev_diff}yr under peak) - "
+                       f"Contact: {original_contact:.1f} -> {self.contact:.1f}, "
+                       f"Power: {original_power:.1f} -> {self.power:.1f}, "
+                       f"Speed: {original_speed:.1f} -> {self.speed:.1f} (-{penalty_pct*100:.0f}%)")
+
         elif self.bio['age'] > self.archetype.decline_age:
-            logger.debug(f"LINE 654 - {self.name} is past decline age. Reducing ratings by {decline_diff}")
-            # Penalize for being past decline, adjusted by archetype
-            self.contact -= adjusted_decline
-            self.power -= adjusted_decline
-            self.speed -= adjusted_decline
-            self.fielding -= adjusted_decline
+            # Veteran batter - past peak
+            penalty_pct = min(decline_diff * DECLINE_PENALTY_RATE, MAX_DECLINE_PENALTY)
+
+            # Apply percentage-based penalties - speed declines faster for veterans
+            self.contact -= self.contact * penalty_pct
+            self.power -= self.power * penalty_pct * 0.8  # Power holds up slightly better
+            self.speed -= self.speed * penalty_pct * 1.3  # Speed declines faster
+            self.fielding -= abs(self.fielding) * penalty_pct if self.fielding > 0 else 0
+
+            logger.info(f"AGE ADJ (Veteran): {self.name} age {self.bio['age']} ({decline_diff}yr over peak) - "
+                       f"Contact: {original_contact:.1f} -> {self.contact:.1f}, "
+                       f"Power: {original_power:.1f} -> {self.power:.1f}, "
+                       f"Speed: {original_speed:.1f} -> {self.speed:.1f} (-{penalty_pct*100:.0f}%)")
+        else:
+            logger.debug(f"AGE ADJ (Peak): {self.name} age {self.bio['age']} - no adjustment (in prime)")
 
         # Clamp the values within the min and max ranges for each attribute
         self.contact = max(0, self.contact)
         self.power = max(0, self.power)
         self.eye = max(-3, self.eye)  # Eye range is -3 to +3
         self.speed = max(0, self.speed)
-        self.fielding = max(-3, self.fielding) # Fielding range is -3 to +3
-
-        logger.debug(f"LINE 668 - Adjusted ratings for {self.name}: Contact: {self.contact}, Power: {self.power}, Speed: {self.speed}, Fielding: {self.fielding}")
+        self.fielding = max(-3, self.fielding)  # Fielding range is -3 to +3
 
 class PitcherProfile:
     # Class-level counter for generating unique player IDs
@@ -942,9 +963,8 @@ class PitcherProfile:
         self.draft = None
         self.type = None  # Starter or Reliever
         self.start_value = 0  # 0.5 to 7.0
-        self.endurance = 0  # 0.5 to 8.0
+        self.endurance = 0  # 0.5 to 8.0 (also determines CG eligibility via chart lookup)
         self.rest = 0  # 3 to 8
-        self.cg_rating = 666  # 611 to 666
         self.sho_rating = 666  # 611 to 666
         self.splits_L = 0
         self.splits_R = 0
@@ -975,78 +995,81 @@ class PitcherProfile:
         return f"{surname}{firstname}{PitcherProfile._pitcher_counter:02d}"
 
     # 20-80 scale starter archetypes (7 grades)
+    # NOTE: CG eligibility is now determined by endurance + dice sum chart lookup (no cg_rating)
     starter_archetypes = [
         Archetype("20",  # Well below average - org filler
-            start_value_range=(0.5, 1.0), endurance_range=(0.5, 1.0), rest_range=(7, 8), splits_range=(-3, -1),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(6, 6),
+            start_value_range=(0.5, 1.0), endurance_range=(0.5, 1.0), rest_range=(6, 7), splits_range=(-3, -1),
+            sho_rating_range=(666, 666), relief_value_range=(6, 6),
             fatigue_range=(+5, +5), potential_range=(0, 0), dev_ceiling_age=21, decline_age=28),
 
         Archetype("30",  # Below average - fringe prospect
-            start_value_range=(0.5, 1.5), endurance_range=(0.5, 1.5), rest_range=(6, 8), splits_range=(-3, 0),
-            cg_rating_range=(665, 666), sho_rating_range=(666, 666), relief_value_range=(6, 6),
+            start_value_range=(1.25, 2.5), endurance_range=(0.5, 1.5), rest_range=(5, 7), splits_range=(-3, 0),
+            sho_rating_range=(666, 666), relief_value_range=(6, 6),
             fatigue_range=(+5, +5), potential_range=(0, 1), dev_ceiling_age=22, decline_age=29),
 
         Archetype("40",  # Fringe average - replacement level
-            start_value_range=(1.0, 2.5), endurance_range=(1.0, 2.5), rest_range=(5, 7), splits_range=(-2, 1),
-            cg_rating_range=(665, 666), sho_rating_range=(665, 666), relief_value_range=(6, 5),
+            start_value_range=(1.5, 3.0), endurance_range=(1.0, 2.5), rest_range=(5, 7), splits_range=(-2, 1),
+            sho_rating_range=(665, 666), relief_value_range=(6, 5),
             fatigue_range=(+5, +5), potential_range=(0, 2), dev_ceiling_age=24, decline_age=30),
 
         Archetype("50",  # MLB Average - #4/5 starter
-            start_value_range=(2.0, 3.5), endurance_range=(2.0, 4.0), rest_range=(4, 6), splits_range=(-1, 2),
-            cg_rating_range=(661, 666), sho_rating_range=(661, 666), relief_value_range=(5, 5),
+            start_value_range=(3.25, 4.0), endurance_range=(2.0, 4.0), rest_range=(4, 6), splits_range=(-1, 2),
+            sho_rating_range=(661, 666), relief_value_range=(5, 5),
             fatigue_range=(+5, +5), potential_range=(1, 3), dev_ceiling_age=25, decline_age=32),
 
         Archetype("60",  # Above average - #3 starter
-            start_value_range=(2.5, 4.5), endurance_range=(2.5, 5.5), rest_range=(4, 5), splits_range=(0, 2),
-            cg_rating_range=(651, 666), sho_rating_range=(656, 666), relief_value_range=(5, 5),
+            start_value_range=(3.75, 4.75), endurance_range=(2.5, 5.5), rest_range=(4, 5), splits_range=(0, 2),
+            sho_rating_range=(656, 666), relief_value_range=(5, 5),
             fatigue_range=(+5, +5), potential_range=(1, 5), dev_ceiling_age=25, decline_age=34),
 
         Archetype("70",  # Plus - All-Star / #2 starter
-            start_value_range=(3.5, 5.5), endurance_range=(3.5, 6.5), rest_range=(4, 5), splits_range=(1, 2),
-            cg_rating_range=(641, 666), sho_rating_range=(651, 666), relief_value_range=(5, 4),
+            start_value_range=(5.0, 6.25), endurance_range=(3.5, 6.5), rest_range=(4, 5), splits_range=(1, 2),
+            sho_rating_range=(651, 666), relief_value_range=(5, 4),
             fatigue_range=(+5, +5), potential_range=(3, 7), dev_ceiling_age=25, decline_age=34),
 
         Archetype("80",  # Elite - Cy Young caliber ace
-            start_value_range=(5.0, 7.0), endurance_range=(4.0, 8.0), rest_range=(4, 4), splits_range=(1, 3),
-            cg_rating_range=(611, 666), sho_rating_range=(611, 666), relief_value_range=(4, 4),
+            start_value_range=(6.0, 7.0), endurance_range=(4.0, 8.0), rest_range=(4, 4), splits_range=(1, 3),
+            sho_rating_range=(611, 666), relief_value_range=(4, 4),
             fatigue_range=(+4, +4), potential_range=(4, 8), dev_ceiling_age=25, decline_age=35)
     ]
 
     # 20-80 scale reliever archetypes (7 grades)
+    # NOTE: relief_value uses HIGHER = BETTER scale (like all other ratings)
+    # Range is -7 (worst) to +5 (best)
     reliever_archetypes = [
         Archetype("20",  # Well below average - org filler
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(-3, -1),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(7, 6),
+            sho_rating_range=(666, 666), relief_value_range=(-7, -6),
             fatigue_range=(4, 4), potential_range=(0, 0), dev_ceiling_age=21, decline_age=28),
 
         Archetype("30",  # Below average - fringe reliever
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(7, 8), splits_range=(-2, 0),
-            cg_rating_range=(665, 666), sho_rating_range=(666, 666), relief_value_range=(7, 5),
+            sho_rating_range=(666, 666), relief_value_range=(-7, -5),
             fatigue_range=(4, 4), potential_range=(0, 1), dev_ceiling_age=22, decline_age=29),
 
         Archetype("40",  # Fringe average - replacement level
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(-1, 1),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(6, 4),
+            sho_rating_range=(666, 666), relief_value_range=(-6, -4),
             fatigue_range=(4, 3), potential_range=(0, 2), dev_ceiling_age=24, decline_age=30),
 
         Archetype("50",  # MLB Average - middle reliever / long relief
             start_value_range=(1.0, 1.5), endurance_range=(0.5, 1.0), rest_range=(5, 7), splits_range=(0, 1),
-            cg_rating_range=(665, 666), sho_rating_range=(665, 666), relief_value_range=(4, 2),
+            sho_rating_range=(665, 666), relief_value_range=(-4, -2),
             fatigue_range=(3, 2), potential_range=(1, 3), dev_ceiling_age=25, decline_age=31),
 
         Archetype("60",  # Above average - 6th/7th inning guy
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(0, 2),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(3, 0),
+            sho_rating_range=(666, 666), relief_value_range=(-3, 0),
             fatigue_range=(3, 1), potential_range=(1, 5), dev_ceiling_age=25, decline_age=32),
 
         Archetype("70",  # Plus - setup man / high-leverage
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(1, 2),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(0, -3),
+            sho_rating_range=(666, 666), relief_value_range=(0, 3),
             fatigue_range=(2, 1), potential_range=(2, 7), dev_ceiling_age=25, decline_age=34),
 
         Archetype("80",  # Elite - dominant closer
             start_value_range=(0.5, 0.5), endurance_range=(0.5, 0.5), rest_range=(8, 8), splits_range=(1, 3),
-            cg_rating_range=(666, 666), sho_rating_range=(666, 666), relief_value_range=(-4, -5),
+            sho_rating_range=(666, 666), relief_value_range=(4, 5),
             fatigue_range=(1, 1), potential_range=(3, 8), dev_ceiling_age=25, decline_age=35)
     ]
 
@@ -1055,13 +1078,12 @@ class PitcherProfile:
         self.start_value = self.generate_attribute(self.archetype.start_value_range, "start_value")
         self.endurance = self.generate_attribute(self.archetype.endurance_range, "endurance")
         self.rest = self.generate_attribute(self.archetype.rest_range, "rest")
-        self.cg_rating = self.generate_attribute(self.archetype.cg_rating_range, "cg_rating")
         self.sho_rating = self.generate_attribute(self.archetype.sho_rating_range, "sho_rating")
-        self.relief_value = self.generate_attribute(self.archetype.relief_value_range, "relief_value", reverse=True)
+        self.relief_value = self.generate_attribute(self.archetype.relief_value_range, "relief_value")
         self.fatigue = self.generate_attribute(self.archetype.fatigue_range, "fatigue", reverse=True)
         self.potential = self.generate_attribute(self.archetype.potential_range, "potential", age_affected=False)
 
-        logger.debug(f"LINE 1051 - Ratings generated for {self.name}: Start Value: {self.start_value}, Endurance: {self.endurance}, Rest: {self.rest}, CG Rating: {self.cg_rating}, SHO Rating: {self.sho_rating}, Relief Value: {self.relief_value}, Fatigue: {self.fatigue}, Potential: {self.potential}")
+        logger.debug(f"LINE 1051 - Ratings generated for {self.name}: Start Value: {self.start_value}, Endurance: {self.endurance}, Rest: {self.rest}, SHO Rating: {self.sho_rating}, Relief Value: {self.relief_value}, Fatigue: {self.fatigue}, Potential: {self.potential}")
 
         # Generate splits for L vs R batters
         self.splits_L, self.splits_R = self.generate_splits()
@@ -1079,7 +1101,7 @@ class PitcherProfile:
 
         self.makeup = self.generate_makeup()
 
-        logger.debug(f"LINE 1066 - Final adjusted ratings for {self.name}: Start Value: {self.start_value}, Endurance: {self.endurance}, Rest: {self.rest}, CG Rating: {self.cg_rating}, SHO Rating: {self.sho_rating}, Relief Value: {self.relief_value}, Fatigue: {self.fatigue}, Potential: {self.potential}")
+        logger.debug(f"LINE 1066 - Final adjusted ratings for {self.name}: Start Value: {self.start_value}, Endurance: {self.endurance}, Rest: {self.rest}, SHO Rating: {self.sho_rating}, Relief Value: {self.relief_value}, Fatigue: {self.fatigue}, Potential: {self.potential}")
         
 
     def generate_makeup(self):
@@ -1109,7 +1131,6 @@ class PitcherProfile:
             "start_value": self.start_value,
             "endurance": self.endurance,
             "rest": self.rest,
-            "cg_rating": self.cg_rating,
             "sho_rating": self.sho_rating,
             "splits_L": self.splits_L,
             "splits_R": self.splits_R,
@@ -1252,7 +1273,7 @@ class PitcherProfile:
         return splits_L, splits_R
 
     def generate_attribute(self, range_tuple, attribute_name, age_affected=True, reverse=False):
-        """Generate a rating based on a given range, with support for reversed scales."""
+        """Generate a FLOAT rating based on a given range, with support for reversed scales."""
         floor, ceiling = range_tuple
 
         # Handle reversed ranges where lower values are better
@@ -1263,7 +1284,8 @@ class PitcherProfile:
             elif self.archetype.name in ["20", "30"]:  # Poor grades - skew toward worse (higher) values
                 rating = self.skewed_random(ceiling, floor, skew="high")  # Reversed, lower is better
             else:  # 40, 50, 60 - average grades
-                rating = np.random.randint(ceiling, floor + 1)  # Generate within reversed range
+                # Use uniform float instead of randint for more granularity
+                rating = round(np.random.uniform(ceiling, floor), 1)
         else:
             # Skew distribution for normal ranges (20-80 scale)
             if self.archetype.name in ["70", "80"]:  # Elite grades - skew toward higher (better) values
@@ -1271,73 +1293,108 @@ class PitcherProfile:
             elif self.archetype.name in ["20", "30"]:  # Poor grades - skew toward lower (worse) values
                 rating = self.skewed_random(floor, ceiling, skew="low")
             else:  # 40, 50, 60 - average grades
-                rating = np.random.randint(floor, ceiling + 1)
+                # Use uniform float instead of randint for more granularity
+                rating = round(np.random.uniform(floor, ceiling), 1)
 
         # Clamp the values within the floor/ceiling bounds
-        return np.clip(rating, min(floor, ceiling), max(floor, ceiling))
-
+        return round(np.clip(rating, min(floor, ceiling), max(floor, ceiling)), 1)
 
     def skewed_random(self, floor, ceiling, skew="neutral"):
-        """Generate a random number in the floor/ceiling range, skewed to high or low, with a chance for extremes."""
-        
+        """Generate a random FLOAT in the floor/ceiling range, skewed to high or low, with a chance for extremes."""
+
         # Introduce a small chance (e.g., 5%) of hitting the extreme values
         if np.random.rand() < 0.05:
             # 5% chance to return the exact floor or ceiling (depending on skew)
             if skew == "high":
-                return ceiling
+                return float(ceiling)
             elif skew == "low":
-                return floor
+                return float(floor)
 
-        # Standard beta distribution logic
+        # Standard beta distribution logic - now returns floats rounded to 1 decimal
         if skew == "high":
-            # Skew towards higher values (better performance against opposite-handedness)
-            return int(np.random.beta(2, 5) * (ceiling - floor) + floor)
+            # Skew towards higher values
+            return round(np.random.beta(2, 5) * (ceiling - floor) + floor, 1)
         elif skew == "low":
-            # Skew towards lower values (worse performance against same-handedness)
-            return int(np.random.beta(5, 2) * (ceiling - floor) + floor)
+            # Skew towards lower values
+            return round(np.random.beta(5, 2) * (ceiling - floor) + floor, 1)
         else:
-            # Neutral distribution for switch hitters
-            return np.random.randint(floor, ceiling + 1)
+            # Neutral distribution - use uniform float
+            return round(np.random.uniform(floor, ceiling), 1)
 
     def adjust_by_age(self):
-        """Adjust ratings based on the player's age (penalties or bonuses)."""
+        """
+        Adjust ratings based on the player's age using PERCENTAGE-BASED penalties.
+        This prevents young/old pitchers from being completely destroyed by age adjustments.
+        """
         dev_diff = self.archetype.dev_ceiling_age - self.bio['age']
         decline_diff = self.bio['age'] - self.archetype.decline_age
 
-        # List of top and second-tier archetypes (20-80 scale)
-        top_tier_archetypes = ["80"]  # Elite/MVP caliber
-        second_tier_archetypes = ["70"]  # All-Star caliber
+        # Store original values for logging
+        original_sv = self.start_value
+        original_end = self.endurance
+        original_rv = self.relief_value
 
-        # Determine penalty adjustments based on archetype
-        if self.archetype.name in top_tier_archetypes:
-            adjusted_decline = max(0, decline_diff - 2)  # Reduce penalty by 2
-        elif self.archetype.name in second_tier_archetypes:
-            adjusted_decline = max(0, decline_diff - 1)  # Reduce penalty by 1
-        else:
-            adjusted_decline = decline_diff  # Apply regular penalty
+        # Penalty rates - percentage per year away from peak
+        DEV_PENALTY_RATE = 0.08  # 8% per year under dev ceiling
+        DECLINE_PENALTY_RATE = 0.10  # 10% per year over decline age
+        MAX_DEV_PENALTY = 0.35  # Cap development penalty at 35%
+        MAX_DECLINE_PENALTY = 0.45  # Cap decline penalty at 45%
 
-        # If under dev_ceiling_age, reduce ratings based on years away from dev_ceiling_age
+        # Elite pitchers decline more gracefully
+        if self.archetype.name == "80":
+            DECLINE_PENALTY_RATE = 0.06
+            MAX_DECLINE_PENALTY = 0.35
+        elif self.archetype.name == "70":
+            DECLINE_PENALTY_RATE = 0.08
+            MAX_DECLINE_PENALTY = 0.40
+
         if self.bio['age'] < self.archetype.dev_ceiling_age:
-            self.start_value -= dev_diff
-            self.endurance -= dev_diff
-            self.cg_rating += dev_diff * 10  # CG/SHO rating needs larger adjustments
-            self.sho_rating += dev_diff * 10
-            self.relief_value -= dev_diff  # Adjust for relievers
+            # Young pitcher - not yet at peak
+            penalty_pct = min(dev_diff * DEV_PENALTY_RATE, MAX_DEV_PENALTY)
+
+            sv_penalty = self.start_value * penalty_pct
+            end_penalty = self.endurance * penalty_pct
+            rv_penalty = abs(self.relief_value) * penalty_pct
+
+            self.start_value -= sv_penalty
+            self.endurance -= end_penalty
+            self.sho_rating += int(penalty_pct * 30)  # SHO harder for young pitchers
+            # Higher relief_value = better, so subtract penalty to make worse
+            self.relief_value -= rv_penalty
+
+            logger.info(f"AGE ADJ (Young): {self.name} age {self.bio['age']} ({dev_diff}yr under peak) - "
+                       f"SV: {original_sv:.2f} -> {self.start_value:.2f} (-{penalty_pct*100:.0f}%), "
+                       f"END: {original_end:.2f} -> {self.endurance:.2f}, "
+                       f"RV: {original_rv:.2f} -> {self.relief_value:.2f}")
+
         elif self.bio['age'] > self.archetype.decline_age:
-            # If over decline_age, apply decline penalties
-            self.start_value -= adjusted_decline
-            self.endurance -= adjusted_decline
-            self.cg_rating += adjusted_decline * 10
-            self.sho_rating += adjusted_decline * 10
-            self.relief_value += adjusted_decline  # Adjust for relievers
+            # Veteran pitcher - past peak
+            penalty_pct = min(decline_diff * DECLINE_PENALTY_RATE, MAX_DECLINE_PENALTY)
+
+            sv_penalty = self.start_value * penalty_pct
+            end_penalty = self.endurance * penalty_pct
+            rv_penalty = abs(self.relief_value) * penalty_pct
+
+            self.start_value -= sv_penalty
+            self.endurance -= end_penalty
+            self.sho_rating += int(penalty_pct * 40)  # Harder to throw shutouts when older
+            # Higher relief_value = better, so subtract penalty to make worse
+            self.relief_value -= rv_penalty
+
+            logger.info(f"AGE ADJ (Veteran): {self.name} age {self.bio['age']} ({decline_diff}yr over peak) - "
+                       f"SV: {original_sv:.2f} -> {self.start_value:.2f} (-{penalty_pct*100:.0f}%), "
+                       f"END: {original_end:.2f} -> {self.endurance:.2f}, "
+                       f"RV: {original_rv:.2f} -> {self.relief_value:.2f}")
+        else:
+            logger.debug(f"AGE ADJ (Peak): {self.name} age {self.bio['age']} - no adjustment (in prime)")
 
         # Clamp the values to stay within valid ranges
-        self.start_value = np.clip(self.start_value, 0.5, 7.0)
+        # RAISED FLOOR: start_value minimum is now 1.0, not 0.5
+        self.start_value = np.clip(self.start_value, 1.0, 7.0)
         self.endurance = np.clip(self.endurance, 0.5, 8.0)
         self.rest = np.clip(self.rest, 4, 8)
-        self.cg_rating = np.clip(self.cg_rating, 611, 666)
         self.sho_rating = np.clip(self.sho_rating, 611, 666)
-        self.relief_value = np.clip(self.relief_value, -5, 7)
+        self.relief_value = np.clip(self.relief_value, -7, 5)  # Higher = better, range: -7 (worst) to +5 (best)
         self.fatigue = np.clip(self.fatigue, 1, 5)
 
 class ManagerProfile:
@@ -1555,7 +1612,8 @@ class ScoutingReport:
 
     def add_pitcher_skills_analysis(self):
         # Only include pitcher-specific ratings
-        ratings = ['start_value', 'endurance', 'rest', 'cg_rating', 'sho_rating', 'relief_value', 'fatigue']
+        # NOTE: cg_rating removed - CG eligibility now determined by endurance + dice chart
+        ratings = ['start_value', 'endurance', 'rest', 'sho_rating', 'relief_value', 'fatigue']
         for rating in ratings:
             self.add_attribute_analysis(rating)
 
@@ -1636,6 +1694,13 @@ class Team:
             '60': 6,   # Max 6 above-average players
         }
         self.grade_counts = {'80': 0, '70': 0, '60': 0}  # Track players per grade
+
+        # Team balance constraints - floor ensures every team has minimum talent
+        # Prevents teams from being all 40-grade replacement-level players
+        self.grade_floors = {
+            '60': 2,   # Min 2 above-average players (prevents total basement dwellers)
+            '50': 4,   # Min 4 average MLB-caliber players
+        }
 
         self.roster = self.generate_roster()  # Generate roster during team creation
         self.manager = ManagerProfile()  # Generate manager
@@ -1748,12 +1813,14 @@ class Team:
             unearned_runs_chart[dice_total] = round(prob * total_unearned_runs)
         
         for position, rating in key_positions.items():
-            if rating > 0:
-                dice_total_to_zero = np.random.choice(dice_roll_totals, size=rating, replace=False)
+            # Convert to int for np.random.choice size parameter
+            int_rating = int(rating)
+            if int_rating > 0:
+                dice_total_to_zero = np.random.choice(dice_roll_totals, size=int_rating, replace=False)
                 for dt in dice_total_to_zero:
                     unearned_runs_chart[dt] = 0
-            elif rating < 0:
-                dice_total_to_add = np.random.choice(dice_roll_totals, size=-rating, replace=False)
+            elif int_rating < 0:
+                dice_total_to_add = np.random.choice(dice_roll_totals, size=-int_rating, replace=False)
                 for dt in dice_total_to_add:
                     unearned_runs_chart[dt] += 1
 
@@ -1761,6 +1828,79 @@ class Team:
             unearned_runs_chart[total] = min(unearned_runs_chart[total], 3)
         
         return unearned_runs_chart
+
+    def enforce_grade_floors(self, roster):
+        """
+        Ensure team has minimum number of quality players by upgrading best lower-grade players.
+        This prevents teams from being all 40-grade replacement-level.
+        """
+        # Collect all players
+        all_players = roster['Starting 9'] + roster['Bench'] + roster['Pitchers']
+
+        # Count current grades
+        grade_counts = {'80': 0, '70': 0, '60': 0, '50': 0, '40': 0, '30': 0, '20': 0}
+        for player in all_players:
+            grade = player.get('archetype', '40')
+            if grade in grade_counts:
+                grade_counts[grade] += 1
+
+        logger.debug(f"FLOOR CHECK for {self.name}: Current grades: {grade_counts}")
+
+        # Check each floor requirement (process higher grades first)
+        for required_grade in ['60', '50']:
+            required_count = self.grade_floors.get(required_grade, 0)
+
+            # Count how many players are at this grade OR HIGHER
+            grades_at_or_above = {'60': ['60', '70', '80'], '50': ['50', '60', '70', '80']}
+            current_count = sum(grade_counts[g] for g in grades_at_or_above[required_grade])
+
+            if current_count < required_count:
+                needed = required_count - current_count
+                logger.info(f"FLOOR ENFORCEMENT for {self.name}: Need {needed} more {required_grade}+ grade players")
+
+                # Find best candidates to upgrade (highest grade below required)
+                # Sort by current grade descending, then we upgrade the "almost good" players
+                upgrade_order = {'50': 1, '40': 2, '30': 3, '20': 4} if required_grade == '60' else {'40': 1, '30': 2, '20': 3}
+
+                candidates = []
+                for player in all_players:
+                    player_grade = player.get('archetype', '40')
+                    if player_grade in upgrade_order:
+                        candidates.append((player, upgrade_order[player_grade]))
+
+                # Sort by priority (closest to required grade first)
+                candidates.sort(key=lambda x: x[1])
+
+                # Upgrade needed number of players
+                for i in range(min(needed, len(candidates))):
+                    player, _ = candidates[i]
+                    old_grade = player['archetype']
+                    player['archetype'] = required_grade
+
+                    # Also boost key stats to match new grade level
+                    # Grade stat averages: 40-grade ~2-3, 50-grade ~3-4, 60-grade ~4-5
+                    grade_boost = {'40': 2.0, '30': 2.5, '20': 3.0}.get(old_grade, 1.5)
+
+                    # Boost batter stats
+                    if 'batting' in player:
+                        player['batting'] = min(6.0, player['batting'] + grade_boost)
+                        player['eye'] = max(0.5, player.get('eye', 0) + grade_boost * 0.5)
+                        player['power'] = min(5.0, player.get('power', 0) + grade_boost * 0.4)
+                        logger.info(f"FLOOR UPGRADE: {player['name']} ({old_grade}->{required_grade}) "
+                                   f"Bat:{player['batting']:.1f} Eye:{player['eye']:.1f} Pow:{player['power']:.1f}")
+                    # Boost pitcher stats
+                    elif 'start_value' in player:
+                        player['start_value'] = min(5.0, player['start_value'] + grade_boost * 0.8)
+                        player['endurance'] = min(5.0, player.get('endurance', 1.0) + grade_boost * 0.5)
+                        logger.info(f"FLOOR UPGRADE: {player['name']} ({old_grade}->{required_grade}) "
+                                   f"SV:{player['start_value']:.1f} END:{player['endurance']:.1f}")
+
+                    # Update grade counts
+                    grade_counts[old_grade] -= 1
+                    grade_counts[required_grade] += 1
+
+        logger.debug(f"FLOOR CHECK COMPLETE for {self.name}: Final grades: {grade_counts}")
+        return roster
 
     def generate_roster(self):
         logger.debug(f"LINE 1237 - Generating roster for team: {self.name}")
@@ -1770,6 +1910,12 @@ class Team:
             'Bench': self.generate_bench(),
             'Pitchers': self.generate_pitching_staff()
         }
+
+        # Enforce grade floors - ensure minimum talent level
+        roster = self.enforce_grade_floors(roster)
+
+        # Optimize roster - promote better bench players to starter, demote weaker starters
+        roster = self.optimize_roster(roster)
 
         # Pass the roster to LineupManager for reordering
         lineup_manager = LineupManager(roster)
@@ -1834,6 +1980,99 @@ class Team:
             player['role'] = 'Bench'  # Assign the "Bench" role
             bench.append(player)
         return bench
+
+    def optimize_roster(self, roster):
+        """
+        Optimize roster by promoting better bench players to starter and demoting weaker starters to bench.
+        This ensures the best players by grade are in the starting lineup while respecting position requirements.
+        """
+        logger.info(f"=== ROSTER OPTIMIZATION START for {self.name} ===")
+
+        starting_9 = roster['Starting 9']
+        bench = roster['Bench']
+
+        # Define position compatibility - which positions can a player fill?
+        position_compat = {
+            'C': ['C'],
+            '1B': ['1B'],
+            '2B': ['2B', 'SS'],  # 2B can play SS in a pinch
+            '3B': ['3B', '1B'],  # 3B can play 1B
+            'SS': ['SS', '2B', '3B'],  # SS is versatile
+            'LF': ['LF', 'CF', 'RF'],  # OF can play any OF
+            'CF': ['CF', 'LF', 'RF'],
+            'RF': ['RF', 'LF', 'CF'],
+            'DH': ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'],  # Anyone can DH
+        }
+
+        # Log initial state
+        logger.info("Initial Starting 9:")
+        for p in starting_9:
+            logger.info(f"  {p['position']}: {p['name']} - Grade {p['archetype']}")
+        logger.info("Initial Bench:")
+        for p in bench:
+            logger.info(f"  {p['position']}: {p['name']} - Grade {p['archetype']}")
+
+        # Grade priority for comparison (higher = better)
+        grade_values = {'20': 1, '30': 2, '40': 3, '50': 4, '60': 5, '70': 6, '80': 7}
+
+        swaps_made = []
+
+        # For each starting position, check if there's a better bench player
+        for i, starter in enumerate(starting_9):
+            starter_grade = grade_values.get(starter['archetype'], 0)
+            starter_pos = starter['position']
+
+            # Find bench players who could play this position
+            for j, bench_player in enumerate(bench):
+                bench_grade = grade_values.get(bench_player['archetype'], 0)
+                bench_pos = bench_player['position']
+
+                # Check if bench player can play the starter's position
+                can_play = False
+                if starter_pos in position_compat.get(bench_pos, []):
+                    can_play = True
+                # Also check reverse - if starter_pos allows bench_pos
+                elif bench_pos in position_compat.get(starter_pos, []):
+                    can_play = True
+                # OF positions are interchangeable
+                elif starter_pos in ['LF', 'CF', 'RF'] and bench_pos in ['LF', 'CF', 'RF']:
+                    can_play = True
+                # IF positions have some flexibility
+                elif starter_pos in ['2B', 'SS'] and bench_pos in ['2B', 'SS', '3B']:
+                    can_play = True
+                elif starter_pos in ['1B', '3B'] and bench_pos in ['1B', '3B']:
+                    can_play = True
+
+                # If bench player is significantly better (at least 2 grades higher), swap
+                if can_play and bench_grade > starter_grade:
+                    logger.info(f"SWAP: {starter['name']} ({starter['archetype']}) at {starter_pos} <-> {bench_player['name']} ({bench_player['archetype']}) from bench")
+
+                    # Perform the swap
+                    starting_9[i], bench[j] = bench[j], starting_9[i]
+
+                    # Update positions - bench player takes starter's position
+                    starting_9[i]['position'] = starter_pos
+
+                    swaps_made.append(f"{bench_player['name']} promoted, {starter['name']} benched")
+                    break  # Move to next starter position
+
+        # Log final state
+        logger.info(f"Total swaps made: {len(swaps_made)}")
+        for swap in swaps_made:
+            logger.info(f"  {swap}")
+
+        logger.info("Final Starting 9:")
+        for p in starting_9:
+            logger.info(f"  {p['position']}: {p['name']} - Grade {p['archetype']}")
+        logger.info("Final Bench:")
+        for p in bench:
+            logger.info(f"  {p['position']}: {p['name']} - Grade {p['archetype']}")
+
+        logger.info(f"=== ROSTER OPTIMIZATION END for {self.name} ===")
+
+        roster['Starting 9'] = starting_9
+        roster['Bench'] = bench
+        return roster
 
     def generate_pitching_staff(self):
         """Generate the pitching staff: 5 starters and 5 relievers."""
