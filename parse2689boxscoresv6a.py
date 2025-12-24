@@ -5,19 +5,14 @@ import os
 import re
 
 def find_game_info(soup):
-    # Try finding the game info with the original class
-    game_info_element = soup.find('p', class_='data-pa')
-    if game_info_element:
-        return game_info_element.text.strip()
-
-    # If not found, try alternative search methods
-    # Example: search within a div or another tag that might contain the game info
-    alternative_element = soup.find('p', class_='data-in')
-    if alternative_element:
-        return alternative_element.text.strip()
+    # Try finding the game info with various class names used across different eras
+    for class_name in ['data-pa', 'data-in', 'data-ce']:
+        game_info_element = soup.find('p', class_=class_name)
+        if game_info_element:
+            return game_info_element.text.strip()
 
     # Check if game info is within a header tag, etc.
-    header_element = soup.find('h1', text=re.compile('vs'))
+    header_element = soup.find('h1', string=re.compile('vs'))
     if header_element:
         return header_element.text.strip()
 
@@ -266,9 +261,9 @@ directory = '/Users/sputnik69/Documents/npb_boxscores'
 os.makedirs(directory, exist_ok=True)  # Ensure the directory exists
 
 # Iterate over the seasons from 1950 to 2023
-for year in range(2023, 2024):
+for year in range(1960, 1961):
     # URL of the parent page containing links to boxscores for each season
-    parent_url = f'https://2689web.com/{year}/eagles.html'
+    parent_url = f'https://2689web.com/{year}/giants.html'
     
 # Fetch and parse the parent HTML
     response = requests.get(parent_url)
@@ -285,7 +280,7 @@ for year in range(2023, 2024):
         for link in boxscore_links:
             if link.get('href').startswith('../ind/'):
                 continue  # Skip individual player pages
-            excel_filename = os.path.join(directory, f'eagles_{year}_' + os.path.basename(link['href']).replace('.html', '.xlsx'))
+            excel_filename = os.path.join(directory, f'giants_{year}_' + os.path.basename(link['href']).replace('.html', '.xlsx'))
             download_and_save_boxscore(link['href'], excel_filename, parent_url)
 
 print("All boxscores have been processed and saved.")

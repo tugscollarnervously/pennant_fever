@@ -1,0 +1,14 @@
+game_id,source_file,month,day,game_no,park,attendance,away_team,home_team,away_runs,home_runs,innings
+eagles_2023_EF1,/Users/sputnik69/npb_boxscores_test/eagles_2023_EF1.xlsx,3,30,1,エスコンフィールド北海道,31092,RAKUTEN,NIPPONHAM-5,15,5,12
+eagles_2023_EF2,/Users/sputnik69/npb_boxscores_test/eagles_2023_EF2.xlsx,4,1,2,エスコンフィールド北海道,30637,RAKUTEN,NIPPONHAM-5,13,19,13
+eagles_2023_EF3,/Users/sputnik69/npb_boxscores_test/eagles_2023_EF3.xlsx,4,2,3,エスコンフィールド北海道,30775,RAKUTEN,NIPPONHAM-5,9,5,12
+eagles_2023_EL1,/Users/sputnik69/npb_boxscores_test/eagles_2023_EL1.xlsx,4,4,1,楽天モバイルパーク,24365,SEIBU-2,RAKUTEN,13,4,12
+eagles_2023_EL2,/Users/sputnik69/npb_boxscores_test/eagles_2023_EL2.xlsx,4,5,2,楽天モバイルパーク,21526,SEIBU-2,RAKUTEN,5,8,12
+giants_1960_GC1,/Users/sputnik69/npb_boxscores_test/giants_1960_GC1.xlsx,4,5,1,後楽園球場,22000,HIROSHIMA-3,KYOJIN,12,7,12
+giants_1960_GS1,/Users/sputnik69/npb_boxscores_test/giants_1960_GS1.xlsx,4,2,1,後楽園球場,32000,KOKUTETSU,KYOJIN,7,27,12
+giants_1960_GS2,/Users/sputnik69/npb_boxscores_test/giants_1960_GS2.xlsx,4,3,2,後楽園球場,40000,KOKUTETSU,KYOJIN,14,19,12
+giants_1960_GS3,/Users/sputnik69/npb_boxscores_test/giants_1960_GS3.xlsx,4,3,3,後楽園球場,40000,KOKUTETSU,KYOJIN,10,22,12
+lions_1980_FL2,/Users/sputnik69/npb_boxscores_test/lions_1980_FL2.xlsx,4,6,2,後楽園球場,38000,SEIBU,NIPPONHAM-2,9,10,12
+lions_1980_FL3,/Users/sputnik69/npb_boxscores_test/lions_1980_FL3.xlsx,4,7,3,後楽園球場,24000,SEIBU,NIPPONHAM-2,15,11,12
+lions_1980_LH1,/Users/sputnik69/npb_boxscores_test/lions_1980_LH1.xlsx,4,8,1,西武ライオンズ球場,21000,NANKAI,SEIBU,14,24,12
+lions_1980_LH2,/Users/sputnik69/npb_boxscores_test/lions_1980_LH2.xlsx,4,10,2,西武ライオンズ球場,17000,NANKAI,SEIBU,21,14,12
